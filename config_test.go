@@ -15,6 +15,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.True(t, config.IncludeDetails)
 	assert.True(t, config.IncludeChecks)
 	assert.Nil(t, config.IPWhitelist)
+	assert.Nil(t, config.TrustedProxies)
 	assert.Nil(t, config.CriticalChecks)
 }
 
@@ -34,6 +35,13 @@ func TestConfigBuilders(t *testing.T) {
 		assert.Len(t, config.IPWhitelist, 2)
 		assert.Len(t, config.parsedIPs, 1)
 		assert.Len(t, config.parsedCIDRs, 1)
+	})
+
+	t.Run("WithTrustedProxies", func(t *testing.T) {
+		config := DefaultConfig().WithTrustedProxies([]string{"192.168.1.1", "10.0.0.0/8"})
+		assert.Len(t, config.TrustedProxies, 2)
+		assert.Len(t, config.parsedTrustedIPs, 1)
+		assert.Len(t, config.parsedTrustedCIDRs, 1)
 	})
 
 	t.Run("WithDetails", func(t *testing.T) {
@@ -181,6 +189,59 @@ func TestIsCritical(t *testing.T) {
 		assert.False(t, config.IsCritical("cache"))
 		assert.False(t, config.IsCritical("external-api"))
 	})
+}
+
+func TestIsTrustedProxy(t *testing.T) {
+	tests := []struct {
+		name     string
+		trusted  []string
+		testIP   string
+		expected bool
+	}{
+		{
+			name:     "empty trusted list denies all",
+			trusted:  nil,
+			testIP:   "192.168.1.1",
+			expected: false,
+		},
+		{
+			name:     "exact IP match",
+			trusted:  []string{"192.168.1.1"},
+			testIP:   "192.168.1.1",
+			expected: true,
+		},
+		{
+			name:     "CIDR match",
+			trusted:  []string{"10.0.0.0/8"},
+			testIP:   "10.1.2.3",
+			expected: true,
+		},
+		{
+			name:     "CIDR no match",
+			trusted:  []string{"10.0.0.0/8"},
+			testIP:   "192.168.1.1",
+			expected: false,
+		},
+		{
+			name:     "IP with port",
+			trusted:  []string{"192.168.1.1"},
+			testIP:   "192.168.1.1:8080",
+			expected: true,
+		},
+		{
+			name:     "invalid IP",
+			trusted:  []string{"192.168.1.1"},
+			testIP:   "invalid",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := DefaultConfig().WithTrustedProxies(tt.trusted)
+			assert.Equal(t, tt.expected, config.IsTrustedProxy(tt.testIP))
+		})
+	}
 }
 
 func TestParseIPWhitelist(t *testing.T) {

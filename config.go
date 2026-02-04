@@ -18,6 +18,10 @@ type Config struct {
 	// If empty, all IPs are allowed
 	IPWhitelist []string
 
+	// TrustedProxies is a list of proxy IPs/CIDRs that are allowed to supply
+	// X-Forwarded-For or X-Real-IP headers.
+	TrustedProxies []string
+
 	// IncludeDetails controls whether to include detailed check results in response
 	// Set to false in production to hide internal details
 	IncludeDetails bool
@@ -35,6 +39,12 @@ type Config struct {
 
 	// parsedIPs caches parsed IPs for IP whitelist
 	parsedIPs []net.IP
+
+	// parsedTrustedCIDRs caches parsed CIDR networks for trusted proxies
+	parsedTrustedCIDRs []*net.IPNet
+
+	// parsedTrustedIPs caches parsed IPs for trusted proxies
+	parsedTrustedIPs []net.IP
 }
 
 // DefaultConfig returns a Config with sensible defaults
@@ -45,6 +55,7 @@ func DefaultConfig() Config {
 		IncludeDetails: true,
 		IncludeChecks:  true,
 		IPWhitelist:    nil,
+		TrustedProxies: nil,
 		CriticalChecks: nil,
 	}
 }
@@ -68,6 +79,13 @@ func (c Config) WithIPWhitelist(ips []string) Config {
 	return c
 }
 
+// WithTrustedProxies sets the trusted proxies list
+func (c Config) WithTrustedProxies(ips []string) Config {
+	c.TrustedProxies = ips
+	c.parseTrustedProxies()
+	return c
+}
+
 // WithDetails sets whether to include details
 func (c Config) WithDetails(include bool) Config {
 	c.IncludeDetails = include
@@ -88,10 +106,19 @@ func (c Config) WithCriticalChecks(checks []string) Config {
 
 // parseIPWhitelist parses the IP whitelist into networks and IPs
 func (c *Config) parseIPWhitelist() {
-	c.parsedCIDRs = nil
-	c.parsedIPs = nil
+	c.parsedIPs, c.parsedCIDRs = parseIPEntries(c.IPWhitelist)
+}
 
-	for _, ipStr := range c.IPWhitelist {
+// parseTrustedProxies parses the trusted proxies into networks and IPs
+func (c *Config) parseTrustedProxies() {
+	c.parsedTrustedIPs, c.parsedTrustedCIDRs = parseIPEntries(c.TrustedProxies)
+}
+
+func parseIPEntries(entries []string) ([]net.IP, []*net.IPNet) {
+	var ips []net.IP
+	var cidrs []*net.IPNet
+
+	for _, ipStr := range entries {
 		ipStr = strings.TrimSpace(ipStr)
 		if ipStr == "" {
 			continue
@@ -101,7 +128,7 @@ func (c *Config) parseIPWhitelist() {
 		if strings.Contains(ipStr, "/") {
 			_, network, err := net.ParseCIDR(ipStr)
 			if err == nil {
-				c.parsedCIDRs = append(c.parsedCIDRs, network)
+				cidrs = append(cidrs, network)
 				continue
 			}
 		}
@@ -109,9 +136,11 @@ func (c *Config) parseIPWhitelist() {
 		// Try parsing as plain IP
 		ip := net.ParseIP(ipStr)
 		if ip != nil {
-			c.parsedIPs = append(c.parsedIPs, ip)
+			ips = append(ips, ip)
 		}
 	}
+
+	return ips, cidrs
 }
 
 // IsIPAllowed checks if the given IP is allowed by the whitelist
@@ -150,6 +179,43 @@ func (c *Config) IsIPAllowed(ipStr string) bool {
 
 	// Check against parsed CIDRs
 	for _, network := range c.parsedCIDRs {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsTrustedProxy checks if the given IP belongs to a trusted proxy list
+func (c *Config) IsTrustedProxy(ipStr string) bool {
+	if len(c.TrustedProxies) == 0 {
+		return false
+	}
+
+	if len(c.parsedTrustedCIDRs) == 0 && len(c.parsedTrustedIPs) == 0 && len(c.TrustedProxies) > 0 {
+		c.parseTrustedProxies()
+	}
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		host, _, err := net.SplitHostPort(ipStr)
+		if err != nil {
+			return false
+		}
+		ip = net.ParseIP(host)
+		if ip == nil {
+			return false
+		}
+	}
+
+	for _, allowedIP := range c.parsedTrustedIPs {
+		if allowedIP.Equal(ip) {
+			return true
+		}
+	}
+
+	for _, network := range c.parsedTrustedCIDRs {
 		if network.Contains(ip) {
 			return true
 		}
