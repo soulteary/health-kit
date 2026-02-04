@@ -2,7 +2,9 @@ package health
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -34,7 +36,7 @@ func Handler(aggregator *Aggregator) http.HandlerFunc {
 
 		// Check IP whitelist
 		if len(config.IPWhitelist) > 0 {
-			clientIP := getClientIPFromRequest(r)
+			clientIP := getClientIPFromRequest(r, config)
 			if !config.IsIPAllowed(clientIP) {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
@@ -90,7 +92,7 @@ func FiberHandler(aggregator *Aggregator) fiber.Handler {
 
 		// Check IP whitelist
 		if len(config.IPWhitelist) > 0 {
-			clientIP := c.IP()
+			clientIP := getClientIPFromFiber(c, config)
 			if !config.IsIPAllowed(clientIP) {
 				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 					"error": "Forbidden",
@@ -132,25 +134,79 @@ func FiberReadinessHandler(aggregator *Aggregator) fiber.Handler {
 }
 
 // getClientIPFromRequest extracts the client IP from an HTTP request
-func getClientIPFromRequest(r *http.Request) string {
-	// Check X-Forwarded-For header first
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the list
-		for i := 0; i < len(xff); i++ {
-			if xff[i] == ',' {
-				return xff[:i]
+func getClientIPFromRequest(r *http.Request, config Config) string {
+	remoteIP := parseIPAddress(r.RemoteAddr)
+	if remoteIP == nil {
+		return ""
+	}
+
+	if config.IsTrustedProxy(remoteIP.String()) {
+		if xff := parseForwardedIP(r.Header.Get("X-Forwarded-For")); xff != "" {
+			return xff
+		}
+
+		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+			if ip := parseIPAddress(xri); ip != nil {
+				return ip.String()
 			}
 		}
-		return xff
 	}
 
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
+	return remoteIP.String()
+}
+
+func getClientIPFromFiber(c *fiber.Ctx, config Config) string {
+	remoteIP := c.Context().RemoteIP()
+	if remoteIP == nil {
+		return ""
 	}
 
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
+	if config.IsTrustedProxy(remoteIP.String()) {
+		if xff := parseForwardedIP(c.Get("X-Forwarded-For")); xff != "" {
+			return xff
+		}
+
+		if xri := strings.TrimSpace(c.Get("X-Real-IP")); xri != "" {
+			if ip := parseIPAddress(xri); ip != nil {
+				return ip.String()
+			}
+		}
+	}
+
+	return remoteIP.String()
+}
+
+func parseForwardedIP(headerValue string) string {
+	if headerValue == "" {
+		return ""
+	}
+	parts := strings.Split(headerValue, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	trimmed := strings.TrimSpace(parts[0])
+	if trimmed == "" {
+		return ""
+	}
+	if ip := parseIPAddress(trimmed); ip != nil {
+		return ip.String()
+	}
+	return ""
+}
+
+func parseIPAddress(value string) net.IP {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if ip := net.ParseIP(value); ip != nil {
+		return ip
+	}
+	host, _, err := net.SplitHostPort(value)
+	if err != nil {
+		return nil
+	}
+	return net.ParseIP(host)
 }
 
 // SimpleHandler returns a minimal health check handler without aggregator

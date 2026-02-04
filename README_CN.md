@@ -161,6 +161,7 @@ config := health.DefaultConfig().
     WithServiceName("herald").
     WithTimeout(5 * time.Second).
     WithIPWhitelist([]string{"10.0.0.0/8", "192.168.1.1"}).
+    WithTrustedProxies([]string{"10.0.0.0/8"}). // 仅信任反向代理
     WithDetails(true).          // 包含详细响应
     WithChecks(true).           // 包含单个检查结果
     WithCriticalChecks([]string{"redis", "database"})  // 关键依赖
@@ -198,6 +199,22 @@ config := health.DefaultConfig().
 
 // 非白名单 IP 的请求将收到 403 Forbidden
 ```
+
+### 可信代理（转发头）
+
+当服务部署在反向代理或负载均衡后面时，请配置可信代理 IP/CIDR，只有来自
+可信代理的 `X-Forwarded-For` / `X-Real-IP` 才会被采纳，避免被伪造头绕过。
+
+```go
+config := health.DefaultConfig().
+    WithIPWhitelist([]string{"192.168.1.100"}).
+    WithTrustedProxies([]string{"10.0.0.0/8"}) // 仅信任代理 IP
+```
+
+### 生产环境隐私
+
+健康检查默认返回详细依赖信息。生产环境建议关闭详细信息与单项检查结果，
+避免泄露内部状态。
 
 ## 项目结构
 

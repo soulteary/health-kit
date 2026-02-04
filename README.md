@@ -161,6 +161,7 @@ config := health.DefaultConfig().
     WithServiceName("herald").
     WithTimeout(5 * time.Second).
     WithIPWhitelist([]string{"10.0.0.0/8", "192.168.1.1"}).
+    WithTrustedProxies([]string{"10.0.0.0/8"}). // Trust only your reverse proxies
     WithDetails(true).          // Include detailed response
     WithChecks(true).           // Include individual check results
     WithCriticalChecks([]string{"redis", "database"})  // Critical dependencies
@@ -198,6 +199,24 @@ config := health.DefaultConfig().
 
 // Requests from non-whitelisted IPs will receive 403 Forbidden
 ```
+
+### Trusted Proxies (Forwarded Headers)
+
+If your service sits behind a reverse proxy or load balancer, configure trusted
+proxy IPs/CIDRs before relying on `X-Forwarded-For` or `X-Real-IP` headers.
+Untrusted sources will be ignored to prevent header spoofing.
+
+```go
+config := health.DefaultConfig().
+    WithIPWhitelist([]string{"192.168.1.100"}).
+    WithTrustedProxies([]string{"10.0.0.0/8"}) // Only proxy IPs are trusted
+```
+
+### Production Privacy
+
+Health responses include detailed dependency metadata by default. Consider
+disabling details and individual checks in production to avoid leaking internal
+state.
 
 ## Project Structure
 

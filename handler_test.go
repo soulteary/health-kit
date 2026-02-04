@@ -129,7 +129,10 @@ func TestHandler(t *testing.T) {
 	})
 
 	t.Run("X-Forwarded-For header", func(t *testing.T) {
-		config := DefaultConfig().WithServiceName("test").WithIPWhitelist([]string{"192.168.1.1"})
+		config := DefaultConfig().
+			WithServiceName("test").
+			WithIPWhitelist([]string{"192.168.1.1"}).
+			WithTrustedProxies([]string{"10.0.0.0/8"})
 		aggregator := NewAggregator(config)
 
 		handler := Handler(aggregator)
@@ -144,7 +147,10 @@ func TestHandler(t *testing.T) {
 	})
 
 	t.Run("X-Real-IP header", func(t *testing.T) {
-		config := DefaultConfig().WithServiceName("test").WithIPWhitelist([]string{"192.168.1.1"})
+		config := DefaultConfig().
+			WithServiceName("test").
+			WithIPWhitelist([]string{"192.168.1.1"}).
+			WithTrustedProxies([]string{"10.0.0.0/8"})
 		aggregator := NewAggregator(config)
 
 		handler := Handler(aggregator)
@@ -156,6 +162,24 @@ func TestHandler(t *testing.T) {
 		handler(rec, req)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("untrusted proxy ignores forwarded headers", func(t *testing.T) {
+		config := DefaultConfig().
+			WithServiceName("test").
+			WithIPWhitelist([]string{"192.168.1.1"}).
+			WithTrustedProxies([]string{"10.0.0.0/8"})
+		aggregator := NewAggregator(config)
+
+		handler := Handler(aggregator)
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.Header.Set("X-Forwarded-For", "192.168.1.1")
+		req.RemoteAddr = "203.0.113.10:12345"
+		rec := httptest.NewRecorder()
+
+		handler(rec, req)
+
+		assert.Equal(t, http.StatusForbidden, rec.Code)
 	})
 }
 
@@ -351,28 +375,41 @@ func TestGetClientIPFromRequest(t *testing.T) {
 		xff        string
 		xri        string
 		remoteAddr string
+		trusted    []string
 		expected   string
 	}{
 		{
-			name:     "X-Forwarded-For single IP",
-			xff:      "192.168.1.1",
-			expected: "192.168.1.1",
+			name:       "X-Forwarded-For single IP",
+			xff:        "192.168.1.1",
+			trusted:    []string{"10.0.0.0/8"},
+			remoteAddr: "10.0.0.1:12345",
+			expected:   "192.168.1.1",
 		},
 		{
-			name:     "X-Forwarded-For multiple IPs",
-			xff:      "192.168.1.1, 10.0.0.1, 172.16.0.1",
-			expected: "192.168.1.1",
+			name:       "X-Forwarded-For multiple IPs",
+			xff:        "192.168.1.1, 10.0.0.1, 172.16.0.1",
+			trusted:    []string{"10.0.0.0/8"},
+			remoteAddr: "10.0.0.1:12345",
+			expected:   "192.168.1.1",
 		},
 		{
 			name:       "X-Real-IP",
 			xri:        "192.168.1.1",
 			remoteAddr: "10.0.0.1:12345",
+			trusted:    []string{"10.0.0.0/8"},
 			expected:   "192.168.1.1",
 		},
 		{
 			name:       "RemoteAddr fallback",
 			remoteAddr: "192.168.1.1:12345",
-			expected:   "192.168.1.1:12345",
+			expected:   "192.168.1.1",
+		},
+		{
+			name:       "Untrusted proxy ignores X-Forwarded-For",
+			xff:        "192.168.1.1",
+			remoteAddr: "203.0.113.10:12345",
+			trusted:    []string{"10.0.0.0/8"},
+			expected:   "203.0.113.10",
 		},
 	}
 
@@ -389,7 +426,8 @@ func TestGetClientIPFromRequest(t *testing.T) {
 				req.RemoteAddr = tt.remoteAddr
 			}
 
-			result := getClientIPFromRequest(req)
+			config := DefaultConfig().WithTrustedProxies(tt.trusted)
+			result := getClientIPFromRequest(req, config)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
