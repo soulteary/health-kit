@@ -90,6 +90,12 @@ func TestAggregator_RemoveChecker(t *testing.T) {
 	names := aggregator.GetCheckerNames()
 	assert.Len(t, names, 1)
 	assert.Equal(t, "database", names[0])
+
+	// 移除不存在的名称，列表不变
+	aggregator.RemoveChecker("nonexistent")
+	names = aggregator.GetCheckerNames()
+	assert.Len(t, names, 1)
+	assert.Equal(t, "database", names[0])
 }
 
 func TestAggregator_Check(t *testing.T) {
@@ -174,6 +180,24 @@ func TestAggregator_Check(t *testing.T) {
 		assert.Equal(t, StatusHealthy, result.Status)
 		// Parallel execution should complete in ~100ms, not 300ms
 		assert.Less(t, elapsed, 200*time.Millisecond)
+	})
+
+	t.Run("context cancelled during Check", func(t *testing.T) {
+		aggregator := NewAggregator(DefaultConfig().WithServiceName("test").WithTimeout(5 * time.Second))
+		aggregator.AddCheckers(
+			&mockChecker{name: "slow", status: StatusHealthy, delay: 200 * time.Millisecond},
+		)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			cancel()
+		}()
+
+		result := aggregator.Check(ctx)
+		// mockChecker 在 ctx.Done() 时返回 StatusUnhealthy
+		assert.Equal(t, StatusUnhealthy, result.Status)
+		assert.Len(t, result.Checks, 1)
 	})
 }
 

@@ -220,12 +220,11 @@ config := health.DefaultConfig().
 
 ```
 health-kit/
-├── checker.go         # 检查器接口和结果类型
+├── checker.go         # 检查器接口、结果类型及 JSON 序列化
 ├── config.go          # 配置，支持 IP 白名单
 ├── probes.go          # 内置探针（Redis、HTTP、DB、自定义、禁用）
 ├── aggregator.go      # 多探针聚合，支持并行执行
 ├── handler.go         # Fiber 和 net/http 的 HTTP 处理器
-├── json.go            # JSON 序列化辅助函数
 └── *_test.go          # 完整测试
 ```
 

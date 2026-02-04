@@ -222,12 +222,11 @@ state.
 
 ```
 health-kit/
-├── checker.go         # Checker interface and result types
+├── checker.go         # Checker interface, result types, and JSON marshaling
 ├── config.go          # Configuration with IP whitelist support
 ├── probes.go          # Built-in probes (Redis, HTTP, DB, Custom, Disabled)
 ├── aggregator.go      # Multi-probe aggregation with parallel execution
 ├── handler.go         # HTTP handlers for Fiber and net/http
-├── json.go            # JSON serialization helpers
 └── *_test.go          # Comprehensive tests
 ```
 

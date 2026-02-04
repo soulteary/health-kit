@@ -242,6 +242,22 @@ func TestIsTrustedProxy(t *testing.T) {
 			assert.Equal(t, tt.expected, config.IsTrustedProxy(tt.testIP))
 		})
 	}
+
+	t.Run("lazy parsing on first use", func(t *testing.T) {
+		config := Config{
+			TrustedProxies: []string{"192.168.1.1", "10.0.0.0/8"},
+		}
+		assert.Nil(t, config.parsedTrustedIPs)
+		assert.Nil(t, config.parsedTrustedCIDRs)
+		config.IsTrustedProxy("192.168.1.1")
+		assert.NotNil(t, config.parsedTrustedIPs)
+		assert.NotNil(t, config.parsedTrustedCIDRs)
+	})
+
+	t.Run("invalid host with port format", func(t *testing.T) {
+		config := DefaultConfig().WithTrustedProxies([]string{"192.168.1.1"})
+		assert.False(t, config.IsTrustedProxy("invalid-host:8080"))
+	})
 }
 
 func TestParseIPWhitelist(t *testing.T) {

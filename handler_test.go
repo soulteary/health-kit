@@ -181,6 +181,21 @@ func TestHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusForbidden, rec.Code)
 	})
+
+	t.Run("empty RemoteAddr with whitelist returns 403", func(t *testing.T) {
+		config := DefaultConfig().WithServiceName("test").WithIPWhitelist([]string{"192.168.1.1"})
+		aggregator := NewAggregator(config)
+		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
+
+		handler := Handler(aggregator)
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		// RemoteAddr 未设置时为空，getClientIPFromRequest 返回 ""
+		rec := httptest.NewRecorder()
+
+		handler(rec, req)
+
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
 }
 
 func TestLivenessHandler(t *testing.T) {
@@ -316,6 +331,29 @@ func TestFiberHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	})
+
+	t.Run("trusted proxy X-Forwarded-For invalid first IP falls back", func(t *testing.T) {
+		app := fiber.New()
+		config := DefaultConfig().
+			WithServiceName("test").
+			WithIPWhitelist([]string{"192.168.1.1"}).
+			WithTrustedProxies([]string{"10.0.0.0/8"})
+		aggregator := NewAggregator(config)
+		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
+
+		app.Get("/health", FiberHandler(aggregator))
+
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.RemoteAddr = "10.0.0.1:12345"
+		req.Header.Set("X-Forwarded-For", "invalid-ip, 192.168.1.1")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+
+		// parseForwardedIP 第一个 IP 无效返回 ""，随后可能用 X-Real-IP 或 remoteIP
+		// 此处无 X-Real-IP，会回退到 10.0.0.1，不在白名单，403
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	})
 }
 
 func TestFiberLivenessHandler(t *testing.T) {
@@ -410,6 +448,27 @@ func TestGetClientIPFromRequest(t *testing.T) {
 			remoteAddr: "203.0.113.10:12345",
 			trusted:    []string{"10.0.0.0/8"},
 			expected:   "203.0.113.10",
+		},
+		{
+			name:       "X-Real-IP invalid IP falls back to RemoteAddr",
+			xri:        "not-an-ip",
+			remoteAddr: "10.0.0.1:12345",
+			trusted:    []string{"10.0.0.0/8"},
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "X-Forwarded-For empty string uses RemoteAddr",
+			xff:        "",
+			remoteAddr: "10.0.0.1:12345",
+			trusted:    []string{"10.0.0.0/8"},
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "X-Forwarded-For first part whitespace only falls back to RemoteAddr",
+			xff:        "  , 192.168.1.1",
+			remoteAddr: "10.0.0.1:12345",
+			trusted:    []string{"10.0.0.0/8"},
+			expected:   "10.0.0.1",
 		},
 	}
 
