@@ -405,7 +405,7 @@ func main() {
 
 ## Requirements
 
-- Go 1.25 or later
+- Go 1.26 or later
 - github.com/gofiber/fiber/v2 v2.52.6+ (for Fiber handlers)
 - github.com/redis/go-redis/v9 v9.7.3+ (for Redis probe)
 

@@ -403,7 +403,7 @@ func main() {
 
 ## 要求
 
-- Go 1.25 或更高版本
+- Go 1.26 或更高版本
 - github.com/gofiber/fiber/v2 v2.52.6+（用于 Fiber 处理器）
 - github.com/redis/go-redis/v9 v9.7.3+（用于 Redis 探针）
 
