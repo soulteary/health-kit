@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // HTTPStatusCode returns the appropriate HTTP status code for a health status
@@ -87,7 +87,7 @@ func ReadinessHandler(aggregator *Aggregator) http.HandlerFunc {
 
 // FiberHandler returns a Fiber handler for health checks
 func FiberHandler(aggregator *Aggregator) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		config := aggregator.Config()
 
 		// Check IP whitelist
@@ -101,7 +101,7 @@ func FiberHandler(aggregator *Aggregator) fiber.Handler {
 		}
 
 		// Perform health check
-		result := aggregator.Check(c.Context())
+		result := aggregator.Check(c)
 
 		if !config.IncludeDetails {
 			return c.Status(HTTPStatusCode(result.Status)).JSON(simpleResponse{
@@ -120,7 +120,7 @@ func FiberHandler(aggregator *Aggregator) fiber.Handler {
 
 // FiberLivenessHandler returns a simple Fiber liveness check handler
 func FiberLivenessHandler(serviceName string) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		return c.Status(fiber.StatusOK).JSON(simpleResponse{
 			Status:  StatusHealthy,
 			Service: serviceName,
@@ -155,8 +155,8 @@ func getClientIPFromRequest(r *http.Request, config Config) string {
 	return remoteIP.String()
 }
 
-func getClientIPFromFiber(c *fiber.Ctx, config Config) string {
-	remoteIP := c.Context().RemoteIP()
+func getClientIPFromFiber(c fiber.Ctx, config Config) string {
+	remoteIP := c.RequestCtx().RemoteIP()
 	if remoteIP == nil {
 		return ""
 	}
@@ -224,7 +224,7 @@ func SimpleHandler(serviceName string) http.HandlerFunc {
 
 // SimpleFiberHandler returns a minimal Fiber health check handler
 func SimpleFiberHandler(serviceName string) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		return c.Status(fiber.StatusOK).JSON(simpleResponse{
 			Status:  StatusHealthy,
 			Service: serviceName,
