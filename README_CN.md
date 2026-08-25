@@ -1,7 +1,7 @@
 # health-kit
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit.svg)](https://pkg.go.dev/github.com/soulteary/health-kit)
-[![Go Report Card](https://goreportcard.com/badge/github.com/soulteary/health-kit)](https://goreportcard.com/report/github.com/soulteary/health-kit)
+[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v2.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v2)
+[![Go Report Card](https://goreportcard.com/badge/github.com/soulteary/health-kit/v2)](https://goreportcard.com/report/github.com/soulteary/health-kit/v2)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/soulteary/health-kit/graph/badge.svg)](https://codecov.io/gh/soulteary/health-kit)
 
@@ -23,8 +23,10 @@
 ## 安装
 
 ```bash
-go get github.com/soulteary/health-kit
+go get github.com/soulteary/health-kit/v2
 ```
+
+v2 的所有 Fiber 专用 Handler 均基于 Fiber v3。仍使用 Fiber v2 的应用应继续使用 health-kit v1；net/http Handler 与探针 API 的行为保持不变。
 
 ## 使用
 
@@ -32,7 +34,7 @@ go get github.com/soulteary/health-kit
 
 ```go
 import (
-    health "github.com/soulteary/health-kit"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 // 创建配置
@@ -114,7 +116,7 @@ disabledChecker := health.NewDisabledChecker("optional-redis").
 ```go
 import (
     "net/http"
-    health "github.com/soulteary/health-kit"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 // 完整健康检查，包含所有探针
@@ -134,8 +136,8 @@ http.HandleFunc("/health", health.SimpleHandler("myservice"))
 
 ```go
 import (
-    "github.com/gofiber/fiber/v2"
-    health "github.com/soulteary/health-kit"
+    "github.com/gofiber/fiber/v3"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 app := fiber.New()
@@ -236,8 +238,8 @@ health-kit/
 package main
 
 import (
-    "github.com/gofiber/fiber/v2"
-    health "github.com/soulteary/health-kit"
+    "github.com/gofiber/fiber/v3"
+    health "github.com/soulteary/health-kit/v2"
     "github.com/redis/go-redis/v9"
 )
 
@@ -265,7 +267,7 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 func main() {
@@ -296,7 +298,7 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 func main() {
@@ -404,7 +406,7 @@ func main() {
 ## 要求
 
 - Go 1.26 或更高版本
-- github.com/gofiber/fiber/v2 v2.52.6+（用于 Fiber 处理器）
+- github.com/gofiber/fiber/v3 v3.4.0+（用于 Fiber 处理器）
 - github.com/redis/go-redis/v9 v9.7.3+（用于 Redis 探针）
 
 ## 测试覆盖率

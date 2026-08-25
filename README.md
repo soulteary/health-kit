@@ -1,6 +1,6 @@
 # health-kit
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit.svg)](https://pkg.go.dev/github.com/soulteary/health-kit)
+[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v2.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v2)
 [![Go Report Card](.github/goreportcard.svg)](.github/goreportcard-report.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/soulteary/health-kit/graph/badge.svg)](https://codecov.io/gh/soulteary/health-kit)
@@ -23,8 +23,10 @@ A unified health check toolkit for Go services. This package provides health che
 ## Installation
 
 ```bash
-go get github.com/soulteary/health-kit
+go get github.com/soulteary/health-kit/v2
 ```
+
+Version 2 uses Fiber v3 for all Fiber-specific handlers. Applications that still use Fiber v2 should remain on health-kit v1. The net/http handlers and probe APIs keep the same behavior.
 
 ## Usage
 
@@ -32,7 +34,7 @@ go get github.com/soulteary/health-kit
 
 ```go
 import (
-    health "github.com/soulteary/health-kit"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 // Create a configuration
@@ -114,7 +116,7 @@ disabledChecker := health.NewDisabledChecker("optional-redis").
 ```go
 import (
     "net/http"
-    health "github.com/soulteary/health-kit"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 // Full health check with all probes
@@ -134,8 +136,8 @@ http.HandleFunc("/health", health.SimpleHandler("myservice"))
 
 ```go
 import (
-    "github.com/gofiber/fiber/v2"
-    health "github.com/soulteary/health-kit"
+    "github.com/gofiber/fiber/v3"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 app := fiber.New()
@@ -238,8 +240,8 @@ health-kit/
 package main
 
 import (
-    "github.com/gofiber/fiber/v2"
-    health "github.com/soulteary/health-kit"
+    "github.com/gofiber/fiber/v3"
+    health "github.com/soulteary/health-kit/v2"
     "github.com/redis/go-redis/v9"
 )
 
@@ -267,7 +269,7 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 func main() {
@@ -298,7 +300,7 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit"
+    health "github.com/soulteary/health-kit/v2"
 )
 
 func main() {
@@ -406,7 +408,7 @@ func main() {
 ## Requirements
 
 - Go 1.26 or later
-- github.com/gofiber/fiber/v2 v2.52.6+ (for Fiber handlers)
+- github.com/gofiber/fiber/v3 v3.4.0+ (for Fiber handlers)
 - github.com/redis/go-redis/v9 v9.7.3+ (for Redis probe)
 
 ## Test Coverage
