@@ -1,6 +1,6 @@
 module github.com/soulteary/health-kit/v2
 
-go 1.26.6
+go 1.27.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.36.1
