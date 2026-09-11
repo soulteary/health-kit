@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -22,36 +23,26 @@ func NewAggregator(config Config) *Aggregator {
 	}
 }
 
-// AddChecker adds a health checker to the aggregator
-// Adding a second checker with a name already in use replaces the first: the
-// results are keyed by name, so the earlier one would otherwise be silently
-// overwritten and a failing check could be masked by a healthy namesake.
+// AddChecker adds a health checker to the aggregator.
+//
+// Registering a second checker under a name already in use keeps BOTH: every
+// registered checker runs, and their results are combined into the single
+// entry that name has in the output, keeping the least healthy status.
+// Replacing the first checker instead -- or letting the map key silently
+// overwrite it -- means a failing check can be masked by a healthy namesake,
+// which is the one thing a health endpoint must never do.
 func (a *Aggregator) AddChecker(checker Checker) *Aggregator {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.checkers = a.replaceByName(a.checkers, checker)
+	a.checkers = append(a.checkers, checker)
 	return a
-}
-
-// replaceByName appends checker, replacing any existing entry with the same
-// name in place so ordering stays stable.
-func (a *Aggregator) replaceByName(list []Checker, checker Checker) []Checker {
-	for i, existing := range list {
-		if existing.Name() == checker.Name() {
-			list[i] = checker
-			return list
-		}
-	}
-	return append(list, checker)
 }
 
 // AddCheckers adds multiple health checkers to the aggregator
 func (a *Aggregator) AddCheckers(checkers ...Checker) *Aggregator {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for _, checker := range checkers {
-		a.checkers = a.replaceByName(a.checkers, checker)
-	}
+	a.checkers = append(a.checkers, checkers...)
 	return a
 }
 
@@ -99,7 +90,7 @@ func (a *Aggregator) Check(ctx context.Context) AggregatedResult {
 	// The channel is buffered for every checker, so a goroutine whose check
 	// outlives the timeout can still finish and exit rather than blocking
 	// forever on the send.
-	resultChan := make(chan CheckResult, len(checkers))
+	resultChan := make(chan checkOutcome, len(checkers))
 
 	for _, checker := range checkers {
 		go func(c Checker) {
@@ -109,15 +100,18 @@ func (a *Aggregator) Check(ctx context.Context) AggregatedResult {
 			// endpoint must not be able to kill the service it reports on.
 			defer func() {
 				if r := recover(); r != nil {
-					resultChan <- CheckResult{
-						Name:    c.Name(),
-						Status:  StatusUnhealthy,
-						Error:   fmt.Sprintf("check panicked: %v", r),
-						Latency: time.Since(start),
+					resultChan <- checkOutcome{
+						name: c.Name(),
+						result: CheckResult{
+							Status:    StatusUnhealthy,
+							Error:     fmt.Sprintf("check panicked: %v", r),
+							Latency:   time.Since(start),
+							Timestamp: time.Now(),
+						},
 					}
 				}
 			}()
-			resultChan <- c.Check(checkCtx)
+			resultChan <- checkOutcome{name: c.Name(), result: c.Check(checkCtx)}
 		}(checker)
 	}
 
@@ -128,55 +122,76 @@ func (a *Aggregator) Check(ctx context.Context) AggregatedResult {
 	// returned. Any checker that ignores its context -- a blocking driver call,
 	// say -- hung the health endpoint indefinitely, which is exactly the
 	// situation the endpoint exists to report.
-	pending := make(map[string]bool, len(checkers))
+	// pending counts outstanding checks PER REGISTERED NAME. It is keyed by
+	// Checker.Name(), never by the name the result carries: a checker whose
+	// CheckResult.Name differs from -- or simply omits -- its Name() used to
+	// leave the registered name pending, so a successfully completed healthy
+	// check had a timeout fabricated for it and turned the aggregate
+	// unhealthy. The count also lets duplicate registrations of one name both
+	// be waited for.
+	pending := make(map[string]int, len(checkers))
 	for _, c := range checkers {
-		pending[c.Name()] = true
+		pending[c.Name()]++
 	}
 
-	hasCriticalFailure := false
-	hasNonCriticalFailure := false
-
-	record := func(checkResult CheckResult) {
-		delete(pending, checkResult.Name)
-		result.Checks[checkResult.Name] = checkResult
-
-		// Skip disabled checks
-		if checkResult.Status == StatusDisabled {
-			return
+	record := func(out checkOutcome) {
+		if n := pending[out.name]; n > 1 {
+			pending[out.name] = n - 1
+		} else {
+			delete(pending, out.name)
 		}
 
-		// Check if this is a failure
-		if !checkResult.Status.IsHealthy() {
-			if a.config.IsCritical(checkResult.Name) {
-				hasCriticalFailure = true
-			} else {
-				hasNonCriticalFailure = true
-			}
+		// The registered name is the identity: it is what the caller
+		// configured, what CriticalChecks is matched against, and what keys
+		// the output.
+		checkResult := out.result
+		checkResult.Name = out.name
+		if existing, ok := result.Checks[out.name]; ok {
+			checkResult = leastHealthy(existing, checkResult)
 		}
+		result.Checks[out.name] = checkResult
 	}
 
 collect:
 	for i := 0; i < len(checkers); i++ {
 		select {
-		case checkResult := <-resultChan:
-			record(checkResult)
+		case out := <-resultChan:
+			record(out)
 		case <-checkCtx.Done():
 			break collect
 		}
 	}
 
-	// Anything that did not report within the budget is reported as timed out
+	// Anything that did not report within the budget is reported as incomplete
 	// rather than silently omitted. Its goroutine is left to finish on its own.
+	incomplete := incompleteReason(checkCtx, a.config.Timeout, time.Since(start))
 	for name := range pending {
-		record(CheckResult{
-			Name:    name,
-			Status:  StatusUnhealthy,
-			Error:   fmt.Sprintf("check did not complete within %s", a.config.Timeout),
-			Latency: time.Since(start),
+		record(checkOutcome{
+			name: name,
+			result: CheckResult{
+				Status:    StatusUnhealthy,
+				Error:     incomplete,
+				Latency:   time.Since(start),
+				Timestamp: time.Now(),
+			},
 		})
 	}
 
-	// Determine overall status
+	// Determine overall status from the combined results, so a name recorded
+	// more than once is counted once.
+	hasCriticalFailure := false
+	hasNonCriticalFailure := false
+	for name, checkResult := range result.Checks {
+		if checkResult.Status == StatusDisabled || checkResult.Status.IsHealthy() {
+			continue
+		}
+		if a.config.IsCritical(name) {
+			hasCriticalFailure = true
+		} else {
+			hasNonCriticalFailure = true
+		}
+	}
+
 	if hasCriticalFailure {
 		result.Status = StatusUnhealthy
 	} else if hasNonCriticalFailure {
@@ -214,9 +229,6 @@ func (a *Aggregator) CheckSequential(ctx context.Context) AggregatedResult {
 	checkCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
 	defer cancel()
 
-	hasCriticalFailure := false
-	hasNonCriticalFailure := false
-
 	for _, checker := range checkers {
 		// Check if context is cancelled
 		select {
@@ -227,21 +239,29 @@ func (a *Aggregator) CheckSequential(ctx context.Context) AggregatedResult {
 		default:
 		}
 
+		// Key by the REGISTERED name, and combine namesakes, for the same
+		// reasons as Check: a result carrying a different (or empty) Name must
+		// not land under the wrong key, and a healthy checker must not be able
+		// to mask a failing one registered under the same name.
+		name := checker.Name()
 		checkResult := checker.Check(checkCtx)
-		result.Checks[checkResult.Name] = checkResult
+		checkResult.Name = name
+		if existing, ok := result.Checks[name]; ok {
+			checkResult = leastHealthy(existing, checkResult)
+		}
+		result.Checks[name] = checkResult
+	}
 
-		// Skip disabled checks
-		if checkResult.Status == StatusDisabled {
+	hasCriticalFailure := false
+	hasNonCriticalFailure := false
+	for name, checkResult := range result.Checks {
+		if checkResult.Status == StatusDisabled || checkResult.Status.IsHealthy() {
 			continue
 		}
-
-		// Check if this is a failure
-		if !checkResult.Status.IsHealthy() {
-			if a.config.IsCritical(checkResult.Name) {
-				hasCriticalFailure = true
-			} else {
-				hasNonCriticalFailure = true
-			}
+		if a.config.IsCritical(name) {
+			hasCriticalFailure = true
+		} else {
+			hasNonCriticalFailure = true
 		}
 	}
 
@@ -258,14 +278,24 @@ func (a *Aggregator) CheckSequential(ctx context.Context) AggregatedResult {
 	return result
 }
 
-// GetCheckerNames returns the names of all registered checkers
+// GetCheckerNames returns the distinct names of all registered checkers, in
+// registration order.
+//
+// Several checkers may share a name -- they all run, and their results are
+// combined into that name's single entry -- so the names are deduplicated here
+// to match the keys a check result actually has.
 func (a *Aggregator) GetCheckerNames() []string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	names := make([]string, len(a.checkers))
-	for i, c := range a.checkers {
-		names[i] = c.Name()
+	names := make([]string, 0, len(a.checkers))
+	seen := make(map[string]bool, len(a.checkers))
+	for _, c := range a.checkers {
+		if seen[c.Name()] {
+			continue
+		}
+		seen[c.Name()] = true
+		names = append(names, c.Name())
 	}
 	return names
 }
@@ -280,4 +310,72 @@ func (a *Aggregator) SetConfig(config Config) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.config = config
+}
+
+// checkOutcome pairs a check's result with the name it was REGISTERED under.
+//
+// A Checker is free to return a CheckResult whose Name differs from its
+// Name(), or to leave it empty, so the result alone cannot say which
+// registered check reported.
+type checkOutcome struct {
+	name   string
+	result CheckResult
+}
+
+// statusSeverity orders statuses from healthiest to least healthy, so two
+// results recorded under one name can be combined without losing a failure.
+func statusSeverity(s Status) int {
+	switch s {
+	case StatusDisabled:
+		return 0
+	case StatusHealthy:
+		return 1
+	case StatusDegraded:
+		return 2
+	case StatusUnhealthy:
+		return 3
+	default:
+		return 2
+	}
+}
+
+// leastHealthy returns whichever of two results for the same registered name
+// reports the worse status, merging the other's error text in so neither check
+// disappears from the output.
+func leastHealthy(a, b CheckResult) CheckResult {
+	worse, other := a, b
+	if statusSeverity(b.Status) > statusSeverity(a.Status) {
+		worse, other = b, a
+	}
+
+	if other.Error != "" && other.Error != worse.Error {
+		if worse.Error == "" {
+			worse.Error = other.Error
+		} else {
+			worse.Error = worse.Error + "; " + other.Error
+		}
+	}
+	if worse.Latency < other.Latency {
+		worse.Latency = other.Latency
+	}
+	return worse
+}
+
+// incompleteReason describes why a check has no result, distinguishing the
+// caller's context ending from the configured timeout elapsing.
+//
+// Every pending check used to be reported as having exceeded Config.Timeout.
+// An already-cancelled caller context returns in microseconds, so a five-second
+// configuration produced "check did not complete within 5s" for a call that
+// lasted no time at all -- misleading to both operators and monitoring.
+func incompleteReason(ctx context.Context, timeout, elapsed time.Duration) string {
+	switch {
+	case errors.Is(ctx.Err(), context.Canceled):
+		return fmt.Sprintf("check did not complete: context canceled after %s", elapsed.Round(time.Millisecond))
+	case errors.Is(ctx.Err(), context.DeadlineExceeded) && elapsed < timeout:
+		// The caller's own deadline was earlier than Config.Timeout.
+		return fmt.Sprintf("check did not complete: caller deadline exceeded after %s", elapsed.Round(time.Millisecond))
+	default:
+		return fmt.Sprintf("check did not complete within %s", timeout)
+	}
 }

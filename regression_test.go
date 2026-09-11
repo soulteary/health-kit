@@ -95,23 +95,186 @@ func TestPanickingCheckerDoesNotCrashTheProcess(t *testing.T) {
 }
 
 // TestDuplicateCheckerNamesDoNotMaskFailures: results are keyed by name, so a
-// second checker registered under an existing name silently replaced the first
-// in the output -- a healthy namesake could hide a failing check.
+// second checker registered under an existing name could hide the first.
+// Replacing the first checker had the same effect -- it never ran at all --
+// so the failing check has to survive whichever order the two are added in,
+// and the aggregate has to report it.
 func TestDuplicateCheckerNamesDoNotMaskFailures(t *testing.T) {
+	for _, tc := range []struct{ name, first, second string }{
+		{"failing first", "unhealthy", "healthy"},
+		{"healthy first", "healthy", "unhealthy"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var ranFailing, ranHealthy bool
+			mk := func(kind string) Checker {
+				return NewCheckerFunc("db", func(context.Context) CheckResult {
+					if kind == "unhealthy" {
+						ranFailing = true
+						return CheckResult{Name: "db", Status: StatusUnhealthy, Error: "down"}
+					}
+					ranHealthy = true
+					return CheckResult{Name: "db", Status: StatusHealthy}
+				})
+			}
+
+			a := NewAggregator(DefaultConfig()).AddChecker(mk(tc.first)).AddChecker(mk(tc.second))
+
+			if n := len(a.GetCheckerNames()); n != 1 {
+				t.Errorf("GetCheckerNames() reports %d names, want the single distinct \"db\"", n)
+			}
+
+			result := a.Check(context.Background())
+
+			if !ranFailing {
+				t.Error("the failing checker never ran -- it was dropped at registration")
+			}
+			if !ranHealthy {
+				t.Error("the healthy checker never ran -- it was dropped at registration")
+			}
+			if len(result.Checks) != 1 {
+				t.Errorf("result holds %d checks, want the single \"db\" entry", len(result.Checks))
+			}
+
+			db, ok := result.Checks["db"]
+			if !ok {
+				t.Fatal(`no "db" entry in the result`)
+			}
+			if db.Status != StatusUnhealthy {
+				t.Errorf("db status = %q, want unhealthy: a healthy namesake must not mask a failing check", db.Status)
+			}
+			if !strings.Contains(db.Error, "down") {
+				t.Errorf("db error = %q, want it to carry the failure", db.Error)
+			}
+			if result.Status == StatusHealthy {
+				t.Error("aggregate status is healthy despite a failing check registered under a duplicate name")
+			}
+		})
+	}
+}
+
+// --- Codex review follow-ups (PR #4) ---
+
+// TestResultNameMismatchIsNotReportedAsTimeout is the regression test for
+// pending being keyed by the result's Name rather than the registered one. A
+// checker returning a CheckResult with a different -- or empty -- Name left its
+// registered name pending, so a completed healthy check had a timeout
+// fabricated for it and the endpoint answered 503.
+func TestResultNameMismatchIsNotReportedAsTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		resultName string
+	}{
+		{"empty result name", ""},
+		{"different result name", "postgres"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := NewAggregator(DefaultConfig()).
+				AddChecker(NewCheckerFunc("db", func(context.Context) CheckResult {
+					return CheckResult{Name: tc.resultName, Status: StatusHealthy}
+				}))
+
+			result := a.Check(context.Background())
+
+			if result.Status != StatusHealthy {
+				t.Errorf("aggregate status = %q, want healthy", result.Status)
+			}
+			db, ok := result.Checks["db"]
+			if !ok {
+				t.Fatalf(`result is keyed %v, want the registered name "db"`, keysOf(result.Checks))
+			}
+			if db.Status != StatusHealthy {
+				t.Errorf("db status = %q (error %q), want healthy -- a timeout was fabricated", db.Status, db.Error)
+			}
+			if db.Name != "db" {
+				t.Errorf("db result Name = %q, want the registered name", db.Name)
+			}
+		})
+	}
+
+	// The sequential path has the same identity rule.
 	a := NewAggregator(DefaultConfig()).
 		AddChecker(NewCheckerFunc("db", func(context.Context) CheckResult {
-			return CheckResult{Name: "db", Status: StatusUnhealthy, Error: "down"}
-		})).
-		AddChecker(NewCheckerFunc("db", func(context.Context) CheckResult {
-			return CheckResult{Name: "db", Status: StatusHealthy}
+			return CheckResult{Name: "postgres", Status: StatusHealthy}
+		}))
+	if _, ok := a.CheckSequential(context.Background()).Checks["db"]; !ok {
+		t.Error(`CheckSequential keyed the result by the returned name, not the registered "db"`)
+	}
+}
+
+// TestIncompleteChecksReportTheRealCause is the regression test for every
+// pending check being reported as having exceeded Config.Timeout. An
+// already-cancelled caller context returns in microseconds, so a five-second
+// configuration claimed a five-second timeout for a call that took no time.
+func TestIncompleteChecksReportTheRealCause(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Timeout = 5 * time.Second
+
+	a := NewAggregator(cfg).
+		AddChecker(NewCheckerFunc("slow", func(ctx context.Context) CheckResult {
+			<-ctx.Done()
+			return CheckResult{Name: "slow", Status: StatusHealthy}
 		}))
 
-	if n := len(a.GetCheckerNames()); n != 1 {
-		t.Errorf("aggregator holds %d checkers named \"db\", want 1", n)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled
+
+	start := time.Now()
+	result := a.Check(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > time.Second {
+		t.Fatalf("Check took %s with an already-cancelled context", elapsed)
 	}
 
-	result := a.Check(context.Background())
-	if len(result.Checks) != 1 {
-		t.Errorf("result holds %d checks, want 1", len(result.Checks))
+	slow, ok := result.Checks["slow"]
+	if !ok {
+		t.Fatal("no result for the pending check")
 	}
+	if strings.Contains(slow.Error, cfg.Timeout.String()) {
+		t.Errorf("error = %q, but the call lasted %s -- a cancelled context is not a %s timeout", slow.Error, elapsed, cfg.Timeout)
+	}
+	if !strings.Contains(slow.Error, "canceled") {
+		t.Errorf("error = %q, want it to name the cancellation", slow.Error)
+	}
+}
+
+// TestSynthesizedResultsCarryTimestamps: Timestamp is always serialised, so a
+// zero value put 0001-01-01T00:00:00Z in the health output for precisely the
+// failures an operator is looking at.
+func TestSynthesizedResultsCarryTimestamps(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Timeout = 50 * time.Millisecond
+
+	before := time.Now()
+	a := NewAggregator(cfg).
+		AddChecker(NewCheckerFunc("slow", func(ctx context.Context) CheckResult {
+			<-ctx.Done()
+			return CheckResult{Name: "slow", Status: StatusHealthy}
+		})).
+		AddChecker(NewCheckerFunc("boom", func(context.Context) CheckResult {
+			panic("boom")
+		}))
+
+	result := a.Check(context.Background())
+
+	for _, name := range []string{"slow", "boom"} {
+		r, ok := result.Checks[name]
+		if !ok {
+			t.Fatalf("no result for %q", name)
+		}
+		if r.Timestamp.IsZero() {
+			t.Errorf("%s Timestamp is the zero value; it serialises as 0001-01-01T00:00:00Z", name)
+		}
+		if r.Timestamp.Before(before) {
+			t.Errorf("%s Timestamp = %s, want a time from this check", name, r.Timestamp)
+		}
+	}
+}
+
+func keysOf(m map[string]CheckResult) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
