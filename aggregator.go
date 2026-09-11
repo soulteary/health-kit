@@ -81,10 +81,17 @@ func (a *Aggregator) Check(ctx context.Context) AggregatedResult {
 		return result
 	}
 
-	// Create timeout context. ownDeadline is what Config.Timeout alone would
-	// have produced, so incompleteReason can tell the two deadlines apart.
+	// Create timeout context from ownDeadline rather than from the duration,
+	// so checkCtx.Deadline() is EXACTLY min(caller deadline, ownDeadline) and
+	// incompleteReason can tell the two apart by comparing them directly.
+	//
+	// WithTimeout calls time.Now() again, a few nanoseconds after the line
+	// above, which left the two deadlines differing by an amount no exact
+	// comparison could account for -- and the millisecond of slack that
+	// papered over it discarded any caller deadline less than a millisecond
+	// earlier than this one.
 	ownDeadline := time.Now().Add(a.config.Timeout)
-	checkCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
+	checkCtx, cancel := context.WithDeadline(ctx, ownDeadline)
 	defer cancel()
 
 	// Run all checks in parallel.
@@ -381,7 +388,13 @@ func incompleteReason(ctx context.Context, ownDeadline time.Time, timeout, elaps
 		// Config.Timeout -- 99ms against 100ms -- because ordinary scheduling
 		// delay pushes elapsed past the timeout before the result is
 		// observed.
-		if actual, ok := ctx.Deadline(); ok && actual.Before(ownDeadline.Add(-time.Millisecond)) {
+		//
+		// Exactly, with no tolerance: checkCtx was derived from ownDeadline
+		// itself, so its deadline is min(caller, ownDeadline) and any earlier
+		// value is the caller's, however small the difference. Allowing a
+		// millisecond of slack reported a caller deadline 99.5ms before a
+		// 100ms one as the configured timeout.
+		if actual, ok := ctx.Deadline(); ok && actual.Before(ownDeadline) {
 			return fmt.Sprintf("check did not complete: caller deadline exceeded after %s", elapsed.Round(time.Millisecond))
 		}
 		return fmt.Sprintf("check did not complete within %s", timeout)

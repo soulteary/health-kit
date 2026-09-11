@@ -317,3 +317,59 @@ func TestIncompleteReasonComparesDeadlines(t *testing.T) {
 		t.Errorf("reason = %q, want it to name the cancellation", got)
 	}
 }
+
+// --- Codex review round 3 (PR #4) ---
+
+// TestIncompleteReasonKeepsSubMillisecondDeadlines is the regression test for
+// the millisecond of slack the round-2 fix used. A caller deadline less than a
+// millisecond earlier than the aggregator's -- 99.5ms against 100ms -- fell
+// inside that tolerance and was reported as the configured timeout, which is
+// exactly the misattribution the comparison exists to avoid.
+func TestIncompleteReasonKeepsSubMillisecondDeadlines(t *testing.T) {
+	const timeout = 100 * time.Millisecond
+	own := time.Now().Add(timeout)
+
+	for _, earlier := range []time.Duration{
+		500 * time.Microsecond,
+		time.Microsecond,
+		time.Nanosecond,
+	} {
+		t.Run(earlier.String(), func(t *testing.T) {
+			callerCtx, cancel := context.WithDeadline(context.Background(), own.Add(-earlier))
+			defer cancel()
+			<-callerCtx.Done()
+
+			got := incompleteReason(callerCtx, own, timeout, timeout)
+			if !strings.Contains(got, "caller deadline") {
+				t.Errorf("reason = %q, want it to name the caller deadline %s before ours", got, earlier)
+			}
+		})
+	}
+}
+
+// TestCheckContextUsesTheRecordedDeadline pins the property the comparison
+// above rests on: checkCtx is derived from ownDeadline itself, so when the
+// caller's deadline is later, checkCtx.Deadline() is EXACTLY ownDeadline
+// rather than a few nanoseconds past it.
+func TestCheckContextUsesTheRecordedDeadline(t *testing.T) {
+	const timeout = 50 * time.Millisecond
+
+	var seen time.Time
+	var ok bool
+	agg := NewAggregator(Config{Timeout: timeout})
+	agg.AddChecker(NewCheckerFunc("probe", func(ctx context.Context) CheckResult {
+		seen, ok = ctx.Deadline()
+		return CheckResult{Name: "probe", Status: StatusHealthy}
+	}))
+
+	before := time.Now().Add(timeout)
+	agg.Check(context.Background())
+	after := time.Now().Add(timeout)
+
+	if !ok {
+		t.Fatal("the check context carried no deadline")
+	}
+	if seen.Before(before) || seen.After(after) {
+		t.Errorf("check deadline %s is outside [%s, %s]; it must come from the recorded ownDeadline", seen, before, after)
+	}
+}
