@@ -48,16 +48,36 @@ type Config struct {
 }
 
 // DefaultConfig returns a Config with sensible defaults
+// DefaultConfig returns a configuration safe to expose publicly.
+//
+// IncludeDetails defaults to false. It used to default to true with no IP
+// whitelist, so an unauthenticated /health response carried each probe's raw
+// err.Error() -- which for the built-in probes means database DSNs, internal
+// hostnames and filesystem paths. Detail is valuable, but it has to be opted
+// into alongside a decision about who can see it: use DefaultInternalConfig,
+// or set IncludeDetails with an IPWhitelist.
 func DefaultConfig() Config {
 	return Config{
 		ServiceName:    "service",
 		Timeout:        5 * time.Second,
-		IncludeDetails: true,
-		IncludeChecks:  true,
+		IncludeDetails: false,
+		IncludeChecks:  false,
 		IPWhitelist:    nil,
 		TrustedProxies: nil,
 		CriticalChecks: nil,
 	}
+}
+
+// DefaultInternalConfig returns a configuration that includes per-check detail,
+// for an endpoint reachable only from inside the deployment.
+//
+// Probe errors are included verbatim, so do not expose an aggregator built
+// from this to the public internet without an IPWhitelist.
+func DefaultInternalConfig() Config {
+	c := DefaultConfig()
+	c.IncludeDetails = true
+	c.IncludeChecks = true
+	return c
 }
 
 // WithServiceName sets the service name

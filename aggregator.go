@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -22,18 +23,35 @@ func NewAggregator(config Config) *Aggregator {
 }
 
 // AddChecker adds a health checker to the aggregator
+// Adding a second checker with a name already in use replaces the first: the
+// results are keyed by name, so the earlier one would otherwise be silently
+// overwritten and a failing check could be masked by a healthy namesake.
 func (a *Aggregator) AddChecker(checker Checker) *Aggregator {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.checkers = append(a.checkers, checker)
+	a.checkers = a.replaceByName(a.checkers, checker)
 	return a
+}
+
+// replaceByName appends checker, replacing any existing entry with the same
+// name in place so ordering stays stable.
+func (a *Aggregator) replaceByName(list []Checker, checker Checker) []Checker {
+	for i, existing := range list {
+		if existing.Name() == checker.Name() {
+			list[i] = checker
+			return list
+		}
+	}
+	return append(list, checker)
 }
 
 // AddCheckers adds multiple health checkers to the aggregator
 func (a *Aggregator) AddCheckers(checkers ...Checker) *Aggregator {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.checkers = append(a.checkers, checkers...)
+	for _, checker := range checkers {
+		a.checkers = a.replaceByName(a.checkers, checker)
+	}
 	return a
 }
 
@@ -76,32 +94,55 @@ func (a *Aggregator) Check(ctx context.Context) AggregatedResult {
 	checkCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
 	defer cancel()
 
-	// Run all checks in parallel
-	var wg sync.WaitGroup
+	// Run all checks in parallel.
+	//
+	// The channel is buffered for every checker, so a goroutine whose check
+	// outlives the timeout can still finish and exit rather than blocking
+	// forever on the send.
 	resultChan := make(chan CheckResult, len(checkers))
 
 	for _, checker := range checkers {
-		wg.Add(1)
 		go func(c Checker) {
-			defer wg.Done()
+			// A checker that panics used to take the whole process with it: a
+			// panic in a goroutine is fatal and is not recovered by the HTTP
+			// framework's middleware, which is on a different stack. A health
+			// endpoint must not be able to kill the service it reports on.
+			defer func() {
+				if r := recover(); r != nil {
+					resultChan <- CheckResult{
+						Name:    c.Name(),
+						Status:  StatusUnhealthy,
+						Error:   fmt.Sprintf("check panicked: %v", r),
+						Latency: time.Since(start),
+					}
+				}
+			}()
 			resultChan <- c.Check(checkCtx)
 		}(checker)
 	}
 
-	// Wait for all checks to complete
-	wg.Wait()
-	close(resultChan)
+	// Collect results, honouring the timeout.
+	//
+	// This used to be a plain wg.Wait(): the timeout context was handed to the
+	// checkers and then the aggregator blocked until every one of them
+	// returned. Any checker that ignores its context -- a blocking driver call,
+	// say -- hung the health endpoint indefinitely, which is exactly the
+	// situation the endpoint exists to report.
+	pending := make(map[string]bool, len(checkers))
+	for _, c := range checkers {
+		pending[c.Name()] = true
+	}
 
-	// Collect results
 	hasCriticalFailure := false
 	hasNonCriticalFailure := false
 
-	for checkResult := range resultChan {
+	record := func(checkResult CheckResult) {
+		delete(pending, checkResult.Name)
 		result.Checks[checkResult.Name] = checkResult
 
 		// Skip disabled checks
 		if checkResult.Status == StatusDisabled {
-			continue
+			return
 		}
 
 		// Check if this is a failure
@@ -112,6 +153,27 @@ func (a *Aggregator) Check(ctx context.Context) AggregatedResult {
 				hasNonCriticalFailure = true
 			}
 		}
+	}
+
+collect:
+	for i := 0; i < len(checkers); i++ {
+		select {
+		case checkResult := <-resultChan:
+			record(checkResult)
+		case <-checkCtx.Done():
+			break collect
+		}
+	}
+
+	// Anything that did not report within the budget is reported as timed out
+	// rather than silently omitted. Its goroutine is left to finish on its own.
+	for name := range pending {
+		record(CheckResult{
+			Name:    name,
+			Status:  StatusUnhealthy,
+			Error:   fmt.Sprintf("check did not complete within %s", a.config.Timeout),
+			Latency: time.Since(start),
+		})
 	}
 
 	// Determine overall status
