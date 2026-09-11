@@ -278,3 +278,42 @@ func keysOf(m map[string]CheckResult) []string {
 	}
 	return out
 }
+
+// --- Codex review round 2 (PR #4) ---
+
+// TestIncompleteReasonComparesDeadlines is the regression test for the
+// elapsed-vs-timeout heuristic. A caller deadline merely CLOSE to
+// Config.Timeout -- 99ms against 100ms -- is misread as the configured
+// timeout once ordinary scheduling delay pushes elapsed past it, because
+// elapsed time does not say which deadline actually fired.
+func TestIncompleteReasonComparesDeadlines(t *testing.T) {
+	const timeout = 100 * time.Millisecond
+	own := time.Now().Add(timeout)
+
+	// A caller deadline just inside the configured timeout, observed late.
+	callerCtx, cancel := context.WithDeadline(context.Background(), own.Add(-2*time.Millisecond))
+	defer cancel()
+	<-callerCtx.Done()
+
+	got := incompleteReason(callerCtx, own, timeout, 150*time.Millisecond)
+	if !strings.Contains(got, "caller deadline") {
+		t.Errorf("reason = %q, want it to name the caller deadline even when observed after the configured timeout", got)
+	}
+
+	// The aggregator's own deadline is reported as the configured timeout.
+	ownCtx, cancel2 := context.WithDeadline(context.Background(), time.Now().Add(-time.Millisecond))
+	defer cancel2()
+	<-ownCtx.Done()
+
+	got = incompleteReason(ownCtx, time.Now().Add(-time.Millisecond), timeout, timeout)
+	if !strings.Contains(got, timeout.String()) {
+		t.Errorf("reason = %q, want it to name the configured timeout", got)
+	}
+
+	// Cancellation is still reported as cancellation.
+	cancelled, cancel3 := context.WithCancel(context.Background())
+	cancel3()
+	if got := incompleteReason(cancelled, own, timeout, time.Millisecond); !strings.Contains(got, "canceled") {
+		t.Errorf("reason = %q, want it to name the cancellation", got)
+	}
+}

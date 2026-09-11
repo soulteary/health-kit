@@ -215,8 +215,17 @@ config := health.DefaultConfig().
 
 ### 生产环境隐私
 
-健康检查默认返回详细依赖信息。生产环境建议关闭详细信息与单项检查结果，
-避免泄露内部状态。
+`DefaultConfig()` 返回的是**对外**形态：`IncludeDetails` 与 `IncludeChecks`
+均为 false，响应只包含整体状态，不含任何单项依赖信息。健康检查接口通常无需认证即可访问，
+而单项检查详情会把内部主机名、数据库版本与错误信息暴露给任何调用方。
+
+```go
+health.NewAggregator(health.DefaultConfig())         // 仅状态
+health.NewAggregator(health.DefaultInternalConfig()) // 详情 + 单项结果
+```
+
+已置于认证之后、或仅集群内可达的接口，可使用 `DefaultInternalConfig()`，
+也可单独设置 `IncludeDetails` / `IncludeChecks`。
 
 ## 项目结构
 

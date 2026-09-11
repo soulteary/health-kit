@@ -81,7 +81,9 @@ func (a *Aggregator) Check(ctx context.Context) AggregatedResult {
 		return result
 	}
 
-	// Create timeout context
+	// Create timeout context. ownDeadline is what Config.Timeout alone would
+	// have produced, so incompleteReason can tell the two deadlines apart.
+	ownDeadline := time.Now().Add(a.config.Timeout)
 	checkCtx, cancel := context.WithTimeout(ctx, a.config.Timeout)
 	defer cancel()
 
@@ -164,7 +166,7 @@ collect:
 
 	// Anything that did not report within the budget is reported as incomplete
 	// rather than silently omitted. Its goroutine is left to finish on its own.
-	incomplete := incompleteReason(checkCtx, a.config.Timeout, time.Since(start))
+	incomplete := incompleteReason(checkCtx, ownDeadline, a.config.Timeout, time.Since(start))
 	for name := range pending {
 		record(checkOutcome{
 			name: name,
@@ -368,13 +370,21 @@ func leastHealthy(a, b CheckResult) CheckResult {
 // An already-cancelled caller context returns in microseconds, so a five-second
 // configuration produced "check did not complete within 5s" for a call that
 // lasted no time at all -- misleading to both operators and monitoring.
-func incompleteReason(ctx context.Context, timeout, elapsed time.Duration) string {
+func incompleteReason(ctx context.Context, ownDeadline time.Time, timeout, elapsed time.Duration) string {
 	switch {
 	case errors.Is(ctx.Err(), context.Canceled):
 		return fmt.Sprintf("check did not complete: context canceled after %s", elapsed.Round(time.Millisecond))
-	case errors.Is(ctx.Err(), context.DeadlineExceeded) && elapsed < timeout:
-		// The caller's own deadline was earlier than Config.Timeout.
-		return fmt.Sprintf("check did not complete: caller deadline exceeded after %s", elapsed.Round(time.Millisecond))
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		// Which deadline fired is decided by comparing the DEADLINES, not by
+		// comparing elapsed time against the timeout. An elapsed-time
+		// heuristic misreads a caller deadline that is merely close to
+		// Config.Timeout -- 99ms against 100ms -- because ordinary scheduling
+		// delay pushes elapsed past the timeout before the result is
+		// observed.
+		if actual, ok := ctx.Deadline(); ok && actual.Before(ownDeadline.Add(-time.Millisecond)) {
+			return fmt.Sprintf("check did not complete: caller deadline exceeded after %s", elapsed.Round(time.Millisecond))
+		}
+		return fmt.Sprintf("check did not complete within %s", timeout)
 	default:
 		return fmt.Sprintf("check did not complete within %s", timeout)
 	}
