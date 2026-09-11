@@ -12,11 +12,23 @@ func TestDefaultConfig(t *testing.T) {
 
 	assert.Equal(t, "service", config.ServiceName)
 	assert.Equal(t, 5*time.Second, config.Timeout)
-	assert.True(t, config.IncludeDetails)
-	assert.True(t, config.IncludeChecks)
+	// Detail is opt-in: probes put err.Error() straight into the response, and
+	// for the built-in probes that means DSNs, internal hostnames and paths.
+	// Exposing that by default on an unauthenticated endpoint is the wrong
+	// side to err on.
+	assert.False(t, config.IncludeDetails)
+	assert.False(t, config.IncludeChecks)
 	assert.Nil(t, config.IPWhitelist)
 	assert.Nil(t, config.TrustedProxies)
 	assert.Nil(t, config.CriticalChecks)
+}
+
+func TestDefaultInternalConfig(t *testing.T) {
+	config := DefaultInternalConfig()
+
+	assert.True(t, config.IncludeDetails)
+	assert.True(t, config.IncludeChecks)
+	assert.Equal(t, 5*time.Second, config.Timeout)
 }
 
 func TestConfigBuilders(t *testing.T) {

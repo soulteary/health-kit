@@ -216,9 +216,20 @@ config := health.DefaultConfig().
 
 ### Production Privacy
 
-Health responses include detailed dependency metadata by default. Consider
-disabling details and individual checks in production to avoid leaking internal
-state.
+`DefaultConfig()` returns the **public** shape: `IncludeDetails` and
+`IncludeChecks` are both false, so the response carries the overall status and
+nothing about individual dependencies. A health endpoint is usually reachable
+without authentication, and per-check detail names your internal hosts,
+database versions and error strings to anyone who asks.
+
+```go
+health.NewAggregator(health.DefaultConfig())        // status only
+health.NewAggregator(health.DefaultInternalConfig()) // details + per-check results
+```
+
+Use `DefaultInternalConfig()` for an endpoint that is already behind
+authentication or only reachable from inside the cluster, or set
+`IncludeDetails` / `IncludeChecks` individually.
 
 ## Project Structure
 
