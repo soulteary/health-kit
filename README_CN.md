@@ -163,11 +163,46 @@ config := health.DefaultConfig().
     WithServiceName("herald").
     WithTimeout(5 * time.Second).
     WithIPWhitelist([]string{"10.0.0.0/8", "192.168.1.1"}).
-    WithTrustedProxies([]string{"10.0.0.0/8"}). // 仅信任反向代理
-    WithDetails(true).          // 包含详细响应
-    WithChecks(true).           // 包含单个检查结果
-    WithCriticalChecks([]string{"redis", "database"})  // 关键依赖
+    WithTrustedProxies([]string{"10.0.0.0/8"}). // 只信任你自己的反向代理
+    WithDetails(true).          // 主动开启逐项检查细节
+    WithChecks(true).           // 主动开启 checks 结果映射
+    WithCriticalChecks([]string{"redis", "database"})
 ```
+
+| 配置项 | `DefaultConfig()` | 说明 |
+|--------|-------------------|------|
+| `ServiceName` | `"service"` | 会回显在响应里 |
+| `Timeout` | `5s` | 强制生效：超时的检查器被记为 unhealthy |
+| `IncludeDetails` | `false` | 逐项检查的 message、error 和 metadata |
+| `IncludeChecks` | `false` | `checks` 映射本身 |
+| `IPWhitelist` | `nil` | 为空表示不做 IP 限制 |
+| `TrustedProxies` | `nil` | 哪些对端的转发头可以信 |
+| `CriticalChecks` | `nil` | 这些名字失败会让整体结果变成 unhealthy |
+
+`DefaultInternalConfig()` 就是在 `DefaultConfig()` 基础上把 `IncludeDetails` 和
+`IncludeChecks` 打开。
+
+用 `aggregator.Config()` 读回当前配置，用 `SetConfig` 整体替换。
+
+### 超时、panic 与重名检查器
+
+**超时是强制的，不是建议性的。** 任何在 `Config.Timeout` 内没有汇报的检查器都会被
+记为 `unhealthy`，message 为"did not complete within ..."，然后聚合返回。忽略
+context 的检查器——驱动调用不接收 context，或接收了却忽略它——再也不能把端点挂住。
+
+失败原因会区分是*谁的*截止时间先到：调用方 context 已被取消，或调用方的截止时间早于
+聚合器的，都会照实报告，而不是一律报成配置的超时。
+
+**panic 的检查器不会拖垮进程。** 检查内部的 panic 会被 recover，并作为该项的
+unhealthy 结果上报。这一点很重要：goroutine 里的 panic 是致命的，且*不会*被 HTTP
+框架的中间件 recover（它在另一个调用栈上）——所以一个解引用了 nil 数据库句柄的探针，
+此前会把它正在报告的那个服务杀掉。
+
+**用同一个名字注册两个检查器，两个都会跑。** 它们的结果会合并进该名字的同一个条目，
+保留最不健康的状态并拼接错误文本，因此一个健康的同名项无法掩盖一个失败的检查。
+`GetCheckerNames()` 会去重，以匹配输出的键。
+
+合成出来的结果——超时或 recover 的 panic——都带有真实的 `Timestamp`。
 
 ### 关键与非关键检查
 
@@ -342,7 +377,7 @@ func main() {
 
 ## 响应格式
 
-### 详细响应（默认）
+### 详细响应（`DefaultInternalConfig()`，或 `WithDetails(true).WithChecks(true)`）
 
 ```json
 {
@@ -372,7 +407,7 @@ func main() {
 }
 ```
 
-### 简单响应（WithDetails(false)）
+### 简单响应（`DefaultConfig()` —— 默认形态）
 
 ```json
 {
@@ -414,7 +449,7 @@ func main() {
 
 ## 要求
 
-- Go 1.26 或更高版本
+- **Go 1.27+**（`go.mod` 声明 `go 1.27.0`）
 - github.com/gofiber/fiber/v3 v3.4.0+（用于 Fiber 处理器）
 - github.com/redis/go-redis/v9 v9.7.3+（用于 Redis 探针）
 
@@ -430,6 +465,31 @@ go test ./... -coverprofile=coverage.out -covermode=atomic
 go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
+
+## 升级说明（v2.2.0）
+
+**默认响应形态变了。** `DefaultConfig()` 不再包含逐项检查细节。
+
+- **`IncludeDetails` 和 `IncludeChecks` 现在默认为 `false`。** 它们此前是开启的，
+  且没有 `IPWhitelist`，而内置探针会把 `err.Error()` 原样塞进结果——数据库 DSN、
+  内网主机名、文件系统路径——放在一个通常没有认证的端点上。**如果你的监控在解析
+  `checks` 映射，请改用 `DefaultInternalConfig()`**（或调用
+  `.WithDetails(true).WithChecks(true)`），并把该端点放到认证之后或仅集群内可达。
+- **`Config.Timeout` 现在强制生效。** `Check` 此前构造了一个带超时的 context、
+  交给每个检查器，然后就 `wg.Wait()`——没有任何地方查看这个 context，于是聚合一直
+  阻塞到最慢的检查器返回，不管那要多久。现在超时的检查器被记为 unhealthy，聚合按时
+  返回。此前会让端点挂住的慢依赖，现在会让它报告 `unhealthy`。
+- **panic 的检查器会被 recover**，不再致命。如果你原本依赖探针 panic 来让 Pod 崩溃
+  重启，这个行为没有了——该检查报告 unhealthy，`ReadinessHandler` 返回 503。
+- **同名注册的两个检查器都会运行。** 第二个此前会在结果映射里静默替换第一个，于是
+  健康的同名项可以掩盖失败的检查。现在结果会合并，保留最不健康的状态。
+- **已完成的健康检查不再被报成超时。** 结果此前按 `Checker.Name()` 建键、却按
+  `CheckResult.Name` 清除，于是返回了不同——或空——`Name` 的检查器会让它注册的名字
+  一直处于 pending，端点就为一个其实已成功的检查返回 503。现在结果随它注册时的名字
+  一起传递，这也是 `CriticalChecks` 匹配的对象和输出的键。
+- **合成结果带有真实时间戳。** 超时和 recover 的 panic 结果此前把 `Timestamp` 留在
+  零值，于是输出里出现 `0001-01-01T00:00:00Z`——而这正是运维最需要看的那些失败。
+- **要求里写的是 Go 1.26**；`go.mod` 需要 `1.27.0`。
 
 ## 贡献
 

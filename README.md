@@ -163,11 +163,53 @@ config := health.DefaultConfig().
     WithServiceName("herald").
     WithTimeout(5 * time.Second).
     WithIPWhitelist([]string{"10.0.0.0/8", "192.168.1.1"}).
-    WithTrustedProxies([]string{"10.0.0.0/8"}). // Trust only your reverse proxies
-    WithDetails(true).          // Include detailed response
-    WithChecks(true).           // Include individual check results
-    WithCriticalChecks([]string{"redis", "database"})  // Critical dependencies
+    WithTrustedProxies([]string{"10.0.0.0/8"}). // trust only your reverse proxies
+    WithDetails(true).          // opt in to per-check detail
+    WithChecks(true).           // opt in to the per-check results map
+    WithCriticalChecks([]string{"redis", "database"})
 ```
+
+| Option | `DefaultConfig()` | Notes |
+|--------|-------------------|-------|
+| `ServiceName` | `"service"` | echoed in the response |
+| `Timeout` | `5s` | enforced: a checker that overruns is recorded unhealthy |
+| `IncludeDetails` | `false` | per-check messages, errors and metadata |
+| `IncludeChecks` | `false` | the `checks` map itself |
+| `IPWhitelist` | `nil` | empty means no IP restriction |
+| `TrustedProxies` | `nil` | which peers' forwarded headers to believe |
+| `CriticalChecks` | `nil` | names whose failure makes the whole result unhealthy |
+
+`DefaultInternalConfig()` is `DefaultConfig()` with `IncludeDetails` and
+`IncludeChecks` turned on.
+
+Read the current values back with `aggregator.Config()`, and replace them with
+`SetConfig`.
+
+### Timeouts, Panics and Duplicate Names
+
+**The timeout is enforced, not advisory.** Any checker that has not reported
+within `Config.Timeout` is recorded as `unhealthy` with a "did not complete
+within ..." message, and aggregation returns. A checker that ignores its
+context — a driver call that takes none, or takes one and ignores it — can no
+longer hang the endpoint.
+
+The reason distinguishes *whose* deadline fired: an already-cancelled caller
+context, or a caller deadline earlier than the aggregator's, is reported as
+such rather than as the configured timeout.
+
+**A panicking checker cannot take the process down.** Panics inside a check are
+recovered and reported as an unhealthy result for that check. This matters
+because a panic in a goroutine is fatal and is *not* recovered by an HTTP
+framework's middleware, which runs on a different stack — so a probe that
+dereferenced a nil database handle used to kill the service it was reporting on.
+
+**Registering two checkers under one name runs both.** Their results are
+combined into that name's single entry, keeping the least healthy status and
+merging the error text, so a healthy namesake cannot mask a failing check.
+`GetCheckerNames()` deduplicates to match the output keys.
+
+Synthesized results — a timeout or a recovered panic — carry a real
+`Timestamp`.
 
 ### Critical vs Non-Critical Checks
 
@@ -346,7 +388,7 @@ func main() {
 
 ## Response Format
 
-### Detailed Response (default)
+### Detailed Response (`DefaultInternalConfig()`, or `WithDetails(true).WithChecks(true)`)
 
 ```json
 {
@@ -376,7 +418,7 @@ func main() {
 }
 ```
 
-### Simple Response (WithDetails(false))
+### Simple Response (`DefaultConfig()` — the default)
 
 ```json
 {
@@ -418,7 +460,7 @@ func main() {
 
 ## Requirements
 
-- Go 1.26 or later
+- **Go 1.27+** (`go.mod` declares `go 1.27.0`)
 - github.com/gofiber/fiber/v3 v3.4.0+ (for Fiber handlers)
 - github.com/redis/go-redis/v9 v9.7.3+ (for Redis probe)
 
@@ -434,6 +476,42 @@ go test ./... -coverprofile=coverage.out -covermode=atomic
 go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
+
+## Upgrade Notes (v2.2.0)
+
+**The default response shape changed.** `DefaultConfig()` no longer includes
+per-check detail.
+
+- **`IncludeDetails` and `IncludeChecks` now default to `false`.** They were on,
+  with no `IPWhitelist`, while the built-in probes put `err.Error()` verbatim into
+  the result — database DSNs, internal hostnames, filesystem paths — on an
+  endpoint that is usually unauthenticated. **If your monitoring parses the
+  `checks` map, switch to `DefaultInternalConfig()`** (or call
+  `.WithDetails(true).WithChecks(true)`) and put the endpoint behind
+  authentication or cluster-internal networking.
+- **`Config.Timeout` is enforced.** `Check` built a timeout context, handed it to
+  every checker, and then called `wg.Wait()` — nothing consulted the context, so
+  aggregation blocked until the slowest checker returned, however long that took.
+  A checker that overruns is now recorded as unhealthy and aggregation returns on
+  time. A slow dependency that previously made the endpoint hang will now make it
+  report `unhealthy` instead.
+- **A panicking checker is recovered**, not fatal. If you relied on a probe panic
+  to crash and restart a pod, that no longer happens — the check reports
+  unhealthy and `ReadinessHandler` answers 503.
+- **Two checkers registered under one name both run.** The second used to
+  silently replace the first in the results map, so a healthy namesake could hide
+  a failing check. Their results are now combined, keeping the least healthy
+  status.
+- **A completed healthy check is no longer reported as a timeout.** Results were
+  keyed by `Checker.Name()` but cleared by `CheckResult.Name`, so a checker
+  returning a result with a different — or empty — `Name` left its registered name
+  pending, and the endpoint answered 503 for a check that had succeeded. Results
+  now travel with the name they were registered under, which is also what
+  `CriticalChecks` matches and what keys the output.
+- **Synthesized results carry a real timestamp.** Timeout and recovered-panic
+  results left `Timestamp` at its zero value, putting `0001-01-01T00:00:00Z` in
+  the output for precisely the failures an operator is reading.
+- **Requirements said Go 1.26**; `go.mod` requires `1.27.0`.
 
 ## Contributing
 
