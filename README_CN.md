@@ -466,6 +466,13 @@ go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
 
+## 升级说明（v2.3.0）
+
+仅升级依赖。没有删除任何 API，调用方无需改代码。
+
+- 测试用 Redis 为 `miniredis` v2.39.0（此前 v2.36.1）。
+- SQLite 驱动为 `modernc.org/sqlite` v1.58.0（此前 v1.44.3）。
+
 ## 升级说明（v2.2.0）
 
 **默认响应形态变了。** `DefaultConfig()` 不再包含逐项检查细节。
