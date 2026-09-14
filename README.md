@@ -477,6 +477,13 @@ go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
 
+## Upgrade Notes (v2.3.0)
+
+Dependency refresh only. No API was removed and no call needs rewriting.
+
+- Test Redis is `miniredis` v2.39.0 (was v2.36.1).
+- The SQLite driver is `modernc.org/sqlite` v1.58.0 (was v1.44.3).
+
 ## Upgrade Notes (v2.2.0)
 
 **The default response shape changed.** `DefaultConfig()` no longer includes
