@@ -101,7 +101,9 @@ type Decision struct {
 	// them, so that moving Fiber out stays a move.
 	Forbidden bool
 
-	// StatusCode is the HTTP status for a non-forbidden response.
+	// StatusCode is the HTTP status to send. It is set on every Decision,
+	// including a forbidden one, so an adapter that writes it unconditionally
+	// cannot end up sending a zero status.
 	StatusCode int
 
 	// Body is the value to serialize as JSON.
@@ -109,13 +111,13 @@ type Decision struct {
 }
 
 // Decide applies the IP whitelist, runs the checks and reduces the outcome to
-// what should be sent. clientIP is ignored when no whitelist is configured.
+// what should be sent. src is only consulted when a whitelist is configured.
 func Decide(ctx context.Context, aggregator *Aggregator, src ClientIPSource) Decision {
 	config := aggregator.Config()
 
 	if len(config.IPWhitelist) > 0 {
 		if !config.IsIPAllowed(config.ClientIP(src)) {
-			return Decision{Forbidden: true}
+			return Decision{Forbidden: true, StatusCode: http.StatusForbidden}
 		}
 	}
 
@@ -158,11 +160,9 @@ func parseForwardedIP(headerValue string) string {
 	if headerValue == "" {
 		return ""
 	}
-	parts := strings.Split(headerValue, ",")
-	if len(parts) == 0 {
-		return ""
-	}
-	trimmed := strings.TrimSpace(parts[0])
+	// strings.Split always yields at least one part for a non-empty string,
+	// which headerValue is by the check above.
+	trimmed := strings.TrimSpace(strings.Split(headerValue, ",")[0])
 	if trimmed == "" {
 		return ""
 	}
