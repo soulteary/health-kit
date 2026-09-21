@@ -338,3 +338,82 @@ func TestAggregator_GetCheckerNames(t *testing.T) {
 	assert.Contains(t, names, "database")
 	assert.Contains(t, names, "cache")
 }
+
+// statusSeverity 与 leastHealthy 是"同名 checker 合并"的核心：一个健康的
+// checker 不能把同名的失败 checker 盖掉。此前只覆盖到 Healthy/Unhealthy
+// 两个分支，错误合并与耗时取大完全没测。
+func TestStatusSeverity(t *testing.T) {
+	// 顺序即语义：Disabled 最轻，Unhealthy 最重，未知状态按 Degraded 处理。
+	assert.Less(t, statusSeverity(StatusDisabled), statusSeverity(StatusHealthy))
+	assert.Less(t, statusSeverity(StatusHealthy), statusSeverity(StatusDegraded))
+	assert.Less(t, statusSeverity(StatusDegraded), statusSeverity(StatusUnhealthy))
+	assert.Equal(t, statusSeverity(StatusDegraded), statusSeverity(StatusUnknown))
+	assert.Equal(t, statusSeverity(StatusDegraded), statusSeverity(Status("something-new")))
+}
+
+func TestLeastHealthy(t *testing.T) {
+	t.Run("keeps the worse status regardless of argument order", func(t *testing.T) {
+		healthy := CheckResult{Name: "redis", Status: StatusHealthy}
+		unhealthy := CheckResult{Name: "redis", Status: StatusUnhealthy, Error: "down"}
+
+		assert.Equal(t, StatusUnhealthy, leastHealthy(healthy, unhealthy).Status)
+		assert.Equal(t, StatusUnhealthy, leastHealthy(unhealthy, healthy).Status)
+	})
+
+	t.Run("adopts the other error when the worse one has none", func(t *testing.T) {
+		worse := CheckResult{Name: "redis", Status: StatusUnhealthy}
+		other := CheckResult{Name: "redis", Status: StatusDegraded, Error: "slow"}
+
+		assert.Equal(t, "slow", leastHealthy(worse, other).Error)
+	})
+
+	t.Run("joins two distinct errors so neither disappears", func(t *testing.T) {
+		worse := CheckResult{Name: "redis", Status: StatusUnhealthy, Error: "down"}
+		other := CheckResult{Name: "redis", Status: StatusDegraded, Error: "slow"}
+
+		assert.Equal(t, "down; slow", leastHealthy(worse, other).Error)
+	})
+
+	t.Run("does not duplicate an identical error", func(t *testing.T) {
+		worse := CheckResult{Name: "redis", Status: StatusUnhealthy, Error: "down"}
+		other := CheckResult{Name: "redis", Status: StatusDegraded, Error: "down"}
+
+		assert.Equal(t, "down", leastHealthy(worse, other).Error)
+	})
+
+	t.Run("reports the larger latency", func(t *testing.T) {
+		worse := CheckResult{Name: "redis", Status: StatusUnhealthy, Latency: 10 * time.Millisecond}
+		other := CheckResult{Name: "redis", Status: StatusHealthy, Latency: 50 * time.Millisecond}
+
+		assert.Equal(t, 50*time.Millisecond, leastHealthy(worse, other).Latency)
+		assert.Equal(t, 50*time.Millisecond, leastHealthy(other, worse).Latency)
+	})
+}
+
+func TestCheckSequentialNamesakes(t *testing.T) {
+	t.Run("a healthy namesake cannot mask a failing one", func(t *testing.T) {
+		aggregator := NewAggregator(DefaultInternalConfig().WithServiceName("test"))
+		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
+		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusUnhealthy, err: "down"})
+
+		result := aggregator.CheckSequential(context.Background())
+
+		require.Len(t, result.Checks, 1)
+		assert.Equal(t, StatusUnhealthy, result.Checks["redis"].Status)
+		assert.Contains(t, result.Checks["redis"].Error, "down")
+		assert.Equal(t, StatusUnhealthy, result.Status)
+	})
+
+	t.Run("cancelled context short-circuits as unhealthy", func(t *testing.T) {
+		aggregator := NewAggregator(DefaultInternalConfig().WithServiceName("test"))
+		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		result := aggregator.CheckSequential(ctx)
+
+		assert.Equal(t, StatusUnhealthy, result.Status)
+		assert.Empty(t, result.Checks, "取消后不应该再跑任何 checker")
+	})
+}
