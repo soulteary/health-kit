@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	health "github.com/soulteary/health-kit/v3"
-	"github.com/soulteary/health-kit/v3/fiberadapter"
+	health "github.com/soulteary/health-kit/v4"
+	"github.com/soulteary/health-kit/v4/fiberadapter"
 )
 
 // mockChecker mirrors the root package's test double; the adapter tests live

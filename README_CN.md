@@ -1,6 +1,6 @@
 # health-kit
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v3.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v3)
+[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v4.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v4)
 [![Go Report Card](.github/goreportcard.svg)](.github/goreportcard-report.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/soulteary/health-kit/graph/badge.svg)](https://codecov.io/gh/soulteary/health-kit)
@@ -10,34 +10,36 @@
 统一的 Go 服务健康检查工具包：健康检查接口、探针实现、多探针聚合，以及 net/http 处理器。Fiber v3 支持位于 `fiberadapter` 子包 —— 自 v3.0.0 起根包就不再提供 Fiber 处理器。
 
 
-> **v3.0.0 破坏性变更 —— 模块路径变更，且 Fiber 支持移入子包。**
+> **v4.0.0 破坏性变更 —— 模块路径变更，且 Redis 探针移入子包。**
 >
-> **第一步 —— 所有人，包括只用 net/http 的用户。** 模块路径现为
-> `github.com/soulteary/health-kit/v3`：
+> **第一步 —— 所有人，包括不用 Redis 的服务。** 模块路径现为
+> `github.com/soulteary/health-kit/v4`：
 >
 > ```bash
-> go get github.com/soulteary/health-kit/v3
-> go mod edit -droprequire github.com/soulteary/health-kit/v2
+> go get github.com/soulteary/health-kit/v4
+> go mod edit -droprequire github.com/soulteary/health-kit/v3
 > ```
 >
 > 然后改掉源码里的 import 路径。升大版本号是 Go 的 import compatibility rule
-> 要求的：v3 删除了导出符号。留兼容 shim 这条路走不通 —— shim 会把 Fiber
+> 要求的：v4 删除了导出符号。留兼容 shim 这条路走不通 —— shim 会把 go-redis
 > 重新导入回来，下面那些收益也就一并没了。
 >
-> **第二步 —— 仅 Fiber 用户。** Fiber handler 移至
-> `github.com/soulteary/health-kit/v3/fiberadapter`，于是导入根包不再把
-> Fiber（以及 fasthttp）链接进用不到它的二进制。对一个 net/http 服务来说，
-> 这意味着**少链接 25 个包、少 8 个模块、二进制小 14%**。
+> **第二步 —— 仅 Redis 用户。** Redis 探针移至
+> `github.com/soulteary/health-kit/v4/redisprobe`，于是导入根包不再把 go-redis
+> 链接进从不访问 Redis 的二进制。对一个只导入根包的程序来说，这意味着**少链接
+> 21 个包、少 4 个模块、二进制小 17.5%**，你的 `go.mod` 里一条 `// indirect`
+> 都不会多出来，`go.sum` 里还会少掉九个模块。
 >
 > | 原来 | 现在 |
 > |---|---|
-> | `health.FiberHandler(agg)` | `fiberadapter.Handler(agg)` |
-> | `health.FiberLivenessHandler(name)` | `fiberadapter.LivenessHandler(name)` |
-> | `health.FiberReadinessHandler(agg)` | `fiberadapter.ReadinessHandler(agg)` |
-> | `health.SimpleFiberHandler(name)` | `fiberadapter.SimpleHandler(name)` |
+> | `health.NewRedisChecker(c)` | `redisprobe.New(c)` |
+> | `health.NewRedisCheckerWithName(n, c)` | `redisprobe.NewWithName(n, c)` |
+> | `health.RedisChecker` | `redisprobe.Checker` |
 >
-> 除 import 路径外，net/http 一侧的 API 没有变化：`health.Handler`、
-> `LivenessHandler`、`ReadinessHandler`、`SimpleHandler` 的签名和行为都不变。
+> 探针现在接受任何能响应 `PING` 的 go-redis 客户端，所以
+> `*redis.ClusterClient`、`*redis.Ring` 和 `redis.UniversalClient` 都能用，
+> 而此前只有 `*redis.Client`。其余一切照旧：所有其他探针、聚合器、net/http
+> Handler 以及 `fiberadapter` 的签名和行为都不变。
 
 ## 特性
 
@@ -56,17 +58,17 @@
 ## 安装
 
 ```bash
-go get github.com/soulteary/health-kit/v3
+go get github.com/soulteary/health-kit/v4
 ```
 
 根包不依赖标准库以外的任何东西。凡是需要第三方模块的能力都放在各自的子包里，二进制只会链接服务真正用到的部分：
 
 ```bash
 # Fiber v3 处理器——会链接 Fiber，以及随之而来的 fasthttp
-go get github.com/soulteary/health-kit/v3/fiberadapter
+go get github.com/soulteary/health-kit/v4/fiberadapter
 
 # Redis 探针——会链接 go-redis
-go get github.com/soulteary/health-kit/v3/redisprobe
+go get github.com/soulteary/health-kit/v4/redisprobe
 ```
 
 一个跑在 net/http、后端是 Postgres 的服务两个都不导入，也就两个都不用付代价。与「Redis 探针仍在根包」的构建相比实测：少链接 21 个包、少 4 个模块、二进制小 17.5%；你自己的 `go.mod` 里一条 `// indirect` 都不会多出来，`go.sum` 里也会少掉九个模块。
@@ -79,7 +81,7 @@ Fiber Handler 基于 Fiber v3。仍使用 Fiber v2 的应用应继续使用 heal
 
 ```go
 import (
-    health "github.com/soulteary/health-kit/v3"
+    health "github.com/soulteary/health-kit/v4"
 )
 
 // 创建配置
@@ -106,7 +108,7 @@ fmt.Printf("状态: %s\n", result.Status)
 Redis 探针位于 `redisprobe` 子包，因此不使用 Redis 的服务永远不会链接 go-redis：
 
 ```go
-import "github.com/soulteary/health-kit/v3/redisprobe"
+import "github.com/soulteary/health-kit/v4/redisprobe"
 
 // 基础 Redis 检查器
 redisChecker := redisprobe.New(redisClient)
@@ -169,7 +171,7 @@ disabledChecker := health.NewDisabledChecker("optional-redis").
 ```go
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v3"
+    health "github.com/soulteary/health-kit/v4"
 )
 
 // 完整健康检查，包含所有探针
@@ -190,8 +192,8 @@ http.HandleFunc("/health", health.SimpleHandler("myservice"))
 ```go
 import (
     "github.com/gofiber/fiber/v3"
-    health "github.com/soulteary/health-kit/v3"
-    "github.com/soulteary/health-kit/v3/fiberadapter"
+    health "github.com/soulteary/health-kit/v4"
+    "github.com/soulteary/health-kit/v4/fiberadapter"
 )
 
 app := fiber.New()
@@ -407,9 +409,9 @@ package main
 
 import (
     "github.com/gofiber/fiber/v3"
-    health "github.com/soulteary/health-kit/v3"
-    "github.com/soulteary/health-kit/v3/fiberadapter"
-    "github.com/soulteary/health-kit/v3/redisprobe"
+    health "github.com/soulteary/health-kit/v4"
+    "github.com/soulteary/health-kit/v4/fiberadapter"
+    "github.com/soulteary/health-kit/v4/redisprobe"
     "github.com/redis/go-redis/v9"
 )
 
@@ -437,8 +439,8 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v3"
-    "github.com/soulteary/health-kit/v3/redisprobe"
+    health "github.com/soulteary/health-kit/v4"
+    "github.com/soulteary/health-kit/v4/redisprobe"
 )
 
 func main() {
@@ -469,8 +471,8 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v3"
-    "github.com/soulteary/health-kit/v3/redisprobe"
+    health "github.com/soulteary/health-kit/v4"
+    "github.com/soulteary/health-kit/v4/redisprobe"
 )
 
 func main() {
@@ -546,6 +548,9 @@ func main() {
 
 ### 降级响应
 
+此处为节选：顶层的 `timestamp`、`total_latency_ms` 以及每个探针的 `timestamp`
+始终存在。
+
 ```json
 {
   "status": "degraded",
@@ -568,19 +573,28 @@ func main() {
 
 ## HTTP 状态码
 
-| 健康状态 | HTTP 状态码 |
-|---------|------------|
-| ok | 200 OK |
-| degraded | 200 OK |
-| unhealthy | 503 Service Unavailable |
-| disabled | 不适用（聚合时跳过） |
+`HTTPStatusCode` 把状态映射为状态码：
+
+| 健康状态 | `HTTPStatusCode` | 端点会报告吗？ |
+|---------|------------------|----------------|
+| `ok` | 200 OK | 会 |
+| `degraded` | 200 OK | 会 |
+| `unhealthy` | 503 Service Unavailable | 会 |
+| `disabled` | 503 Service Unavailable | 不会 |
+| `unknown` | 503 Service Unavailable | 不会 |
+
+`disabled` 和 `unknown` 是**单个探针**的状态。`Aggregator` 只会归约出前三种，
+所以端点不会因为它们返回 503：被禁用的探针仍然出现在 `checks` 里，只是在归约
+整体状态时被跳过。后两行只在你自己拿单个探针的状态去调 `HTTPStatusCode` 时才
+有意义 —— 前三种之外的一切都映射为 503。
 
 ## 要求
 
 - **Go 1.27+**（`go.mod` 声明 `go 1.27.0`）
 - github.com/gofiber/fiber/v3 v3.5.0+ —— **仅当**你导入 `fiberadapter` 时需要，
   根包不会引入它
-- github.com/redis/go-redis/v9 v9.22.0+（用于 Redis 探针）
+- github.com/redis/go-redis/v9 v9.22.0+ —— **仅当**你导入 `redisprobe` 时需要，
+  根包不会引入它
 - modernc.org/sqlite v1.59.0+ 与 github.com/alicebob/miniredis/v2 v2.39.0+ 为
   仅测试依赖
 
@@ -597,15 +611,40 @@ go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
 
-两个包均为 **100% 语句覆盖**。注意 `fiberadapter` 的测试是*外部*测试包
+三个包均为 **100% 语句覆盖**。注意 `fiberadapter` 的测试是*外部*测试包
 （`package fiberadapter_test`）：它只针对导出 API 编译，以此保证这套 API
 确实够外部适配器使用。
+
+## 升级说明（v4.0.0）
+
+**破坏性变更：模块路径现为 `github.com/soulteary/health-kit/v4`，且 Redis
+探针移入 `redisprobe` 子包。** 两步迁移方式见本文件顶部的说明。其余一切照旧。
+
+- **根包现在不依赖标准库以外的任何东西。** Fiber 在 `fiberadapter`，Redis 在
+  `redisprobe`；一个跑在 net/http、后端是 Postgres 的服务两个都不链接。
+- **`redisprobe.New` 与 `NewWithName` 接受 `redisprobe.Pinger`** —— 任何能
+  响应 `PING` 的客户端 —— 所以 `*redis.ClusterClient`、`*redis.Ring` 和
+  `redis.UniversalClient` 都能用，而此前只有 `*redis.Client`。
+- **客户端为 nil 时仍然是报告而不是 panic**，包括未赋值的 `*redis.Client`
+  字段这种带类型的 nil —— 对接口做一次朴素的 `== nil` 是查不出它的。
+- **`redisprobe.DefaultTimeout`** 给 `NewRedisChecker` 此前匿名使用的那个 2s
+  单次 `PING` 上限起了名字，数值不变。
+- 所有其他探针、聚合器、net/http Handler 以及 `fiberadapter` 的签名和行为
+  都不变。
 
 ## 升级说明（v3.0.0）
 
 **破坏性变更：模块路径现为 `github.com/soulteary/health-kit/v3`，且 Fiber
-Handler 移入 `fiberadapter` 子包。** 两步迁移方式见本文件顶部的说明。其余改动
-均为增量。
+Handler 移入 `fiberadapter` 子包。** 两步：先改 import 路径；如果你提供 Fiber
+路由，再换用适配器。导入根包不再链接 Fiber（以及 fasthttp），一个 net/http
+服务因此少链接 25 个包、少 8 个模块、二进制小 14%。其余改动均为增量。
+
+| 原来 | 现在 |
+|---|---|
+| `health.FiberHandler(agg)` | `fiberadapter.Handler(agg)` |
+| `health.FiberLivenessHandler(name)` | `fiberadapter.LivenessHandler(name)` |
+| `health.FiberReadinessHandler(agg)` | `fiberadapter.ReadinessHandler(agg)` |
+| `health.SimpleFiberHandler(name)` | `fiberadapter.SimpleHandler(name)` |
 
 - **为适配器作者新导出**：`Decide`、`Decision`、`ClientIPSource`、
   `RequestSource` 以及 `SimpleResponse`（原为未导出的 `simpleResponse`）。

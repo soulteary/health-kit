@@ -21,7 +21,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	health "github.com/soulteary/health-kit/v3"
+	health "github.com/soulteary/health-kit/v4"
 )
 
 // DefaultTimeout bounds a single PING when [Checker.WithTimeout] is not used.

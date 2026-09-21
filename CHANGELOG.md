@@ -5,9 +5,12 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Because Go encodes the major version in the import path, every major release
-also changes the module path — see [Unreleased](#unreleased) for the current one.
+also changes the module path. The current one is
+`github.com/soulteary/health-kit/v4`.
 
 ## [Unreleased]
+
+## [4.0.0] — 2026-09-21
 
 ### Changed — BREAKING
 
@@ -37,10 +40,10 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
   consumer's `go.mod` and `go.sum` entirely — which is what `fiberadapter`
   already demonstrates for Fiber.
 
-  **Releasing this therefore means moving the module path to
-  `github.com/soulteary/health-kit/v4`**, by the same import compatibility rule
-  that forced `/v3`. The bump is deliberately not in the tree yet: do it in the
-  commit that cuts the release, together with this heading.
+  **The module path is therefore now `github.com/soulteary/health-kit/v4`**,
+  by the same import compatibility rule that forced `/v3`. Every user must
+  update the import path, including services with no Redis at all, which are
+  otherwise unaffected.
 
 - Nothing else changed. The remaining probes, the aggregator, the net/http
   handlers and `fiberadapter` keep their signatures and their behaviour.
@@ -85,6 +88,17 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
   dependency major is a judgement call. The release gate is an action too, so
   a silently stale action would be a stale release check.
 
+### Changed
+
+- CI builds `golangci-lint` with the toolchain `setup-go` installs, instead of
+  taking a release binary from `golangci-lint-action`. Those binaries are
+  compiled with Go 1.26 and refuse a module targeting a newer language
+  version, so with `go 1.27.0` in `go.mod` the lint job exited with "the Go
+  language version (go1.26) used to build golangci-lint is lower than the
+  targeted Go version (1.27.0)" before reading a line of code. Compiled with
+  1.27 the same linter runs clean on all three packages. The `security-scan`
+  job already installed `govulncheck` this way and was never affected.
+
 ### Fixed
 
 - `(*Aggregator).Check` was over gocyclo's complexity threshold (17 vs 15). The
@@ -100,6 +114,13 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
 - Both compare links at the foot of this file pointed at `HEAD`, so
   `[Unreleased]` covered everything back to v2.3.0 and `[3.0.0]` grew with every
   commit instead of ending at its tag.
+- Both READMEs' HTTP status code table listed `disabled` as "N/A (skipped in
+  aggregation)". `HTTPStatusCode` returns 503 for it, and for `unknown`, which
+  the table did not list at all. What is true is narrower: `Aggregator` never
+  reduces to either status, and a disabled check still appears under `checks` —
+  it is skipped only when computing the overall status. The table now says
+  what the function returns and which statuses an endpoint can actually
+  report.
 
 ## [3.0.0] — 2026-09-21
 
@@ -257,7 +278,8 @@ Initial release: the `Checker` interface, built-in Redis / HTTP / database /
 custom / disabled probes, parallel multi-probe aggregation, net/http and Fiber
 handlers, Kubernetes liveness and readiness probes, and IP whitelisting.
 
-[Unreleased]: https://github.com/soulteary/health-kit/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/soulteary/health-kit/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/soulteary/health-kit/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/soulteary/health-kit/compare/v2.3.0...v3.0.0
 [2.3.0]: https://github.com/soulteary/health-kit/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/soulteary/health-kit/compare/v2.1.0...v2.2.0

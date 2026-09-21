@@ -14,9 +14,9 @@
 // subpackage instead, so importing the root package never links a client or a
 // framework the service does not use:
 //
-//   - github.com/soulteary/health-kit/v3/fiberadapter -- Fiber v3 handlers,
+//   - github.com/soulteary/health-kit/v4/fiberadapter -- Fiber v3 handlers,
 //     and with them fasthttp.
-//   - github.com/soulteary/health-kit/v3/redisprobe -- the Redis probe, and
+//   - github.com/soulteary/health-kit/v4/redisprobe -- the Redis probe, and
 //     with it go-redis.
 //
 // A net/http service backed by Postgres pays nothing for either one existing;

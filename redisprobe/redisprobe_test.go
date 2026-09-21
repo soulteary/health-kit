@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	health "github.com/soulteary/health-kit/v3"
+	health "github.com/soulteary/health-kit/v4"
 )
 
 // The probe accepts every go-redis client shape, not just a standalone one --

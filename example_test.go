@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	health "github.com/soulteary/health-kit/v3"
+	health "github.com/soulteary/health-kit/v4"
 )
 
 // The common case: aggregate a few probes behind a net/http endpoint.
