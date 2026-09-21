@@ -15,7 +15,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	health "github.com/soulteary/health-kit/v2"
+	health "github.com/soulteary/health-kit/v3"
 )
 
 // Source adapts a fiber.Ctx to health.ClientIPSource.

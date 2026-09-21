@@ -1,6 +1,6 @@
 # health-kit
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v2.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v2)
+[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v3.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v3)
 [![Go Report Card](.github/goreportcard.svg)](.github/goreportcard-report.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/soulteary/health-kit/graph/badge.svg)](https://codecov.io/gh/soulteary/health-kit)
@@ -10,10 +10,24 @@
 统一的 Go 服务健康检查工具包。提供健康检查接口、探针实现、多探针聚合以及兼容 Fiber 和 net/http 的 HTTP 处理器。
 
 
-> **v2.4.0 破坏性变更 —— Fiber 支持移入子包。**
-> Fiber handler 现位于 `github.com/soulteary/health-kit/v2/fiberadapter`，
-> 于是导入根包不再把 Fiber（以及 fasthttp）链接进用不到它的二进制。
-> 对一个 net/http 服务来说，这意味着**少链接 25 个包、少 8 个模块、二进制小 14%**。
+> **v3.0.0 破坏性变更 —— 模块路径变更，且 Fiber 支持移入子包。**
+>
+> **第一步 —— 所有人，包括只用 net/http 的用户。** 模块路径现为
+> `github.com/soulteary/health-kit/v3`：
+>
+> ```bash
+> go get github.com/soulteary/health-kit/v3
+> go mod edit -droprequire github.com/soulteary/health-kit/v2
+> ```
+>
+> 然后改掉源码里的 import 路径。升大版本号是 Go 的 import compatibility rule
+> 要求的：v3 删除了导出符号。留兼容 shim 这条路走不通 —— shim 会把 Fiber
+> 重新导入回来，下面那些收益也就一并没了。
+>
+> **第二步 —— 仅 Fiber 用户。** Fiber handler 移至
+> `github.com/soulteary/health-kit/v3/fiberadapter`，于是导入根包不再把
+> Fiber（以及 fasthttp）链接进用不到它的二进制。对一个 net/http 服务来说，
+> 这意味着**少链接 25 个包、少 8 个模块、二进制小 14%**。
 >
 > | 原来 | 现在 |
 > |---|---|
@@ -22,7 +36,8 @@
 > | `health.FiberReadinessHandler(agg)` | `fiberadapter.ReadinessHandler(agg)` |
 > | `health.SimpleFiberHandler(name)` | `fiberadapter.SimpleHandler(name)` |
 >
-> net/http 一侧没有任何变化。
+> 除 import 路径外，net/http 一侧的 API 没有变化：`health.Handler`、
+> `LivenessHandler`、`ReadinessHandler`、`SimpleHandler` 的签名和行为都不变。
 
 ## 特性
 
@@ -38,7 +53,7 @@
 ## 安装
 
 ```bash
-go get github.com/soulteary/health-kit/v2
+go get github.com/soulteary/health-kit/v3
 ```
 
 v2 的所有 Fiber 专用 Handler 均基于 Fiber v3。仍使用 Fiber v2 的应用应继续使用 health-kit v1；net/http Handler 与探针 API 的行为保持不变。
@@ -49,7 +64,7 @@ v2 的所有 Fiber 专用 Handler 均基于 Fiber v3。仍使用 Fiber v2 的应
 
 ```go
 import (
-    health "github.com/soulteary/health-kit/v2"
+    health "github.com/soulteary/health-kit/v3"
 )
 
 // 创建配置
@@ -131,7 +146,7 @@ disabledChecker := health.NewDisabledChecker("optional-redis").
 ```go
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v2"
+    health "github.com/soulteary/health-kit/v3"
 )
 
 // 完整健康检查，包含所有探针
@@ -152,8 +167,8 @@ http.HandleFunc("/health", health.SimpleHandler("myservice"))
 ```go
 import (
     "github.com/gofiber/fiber/v3"
-    health "github.com/soulteary/health-kit/v2"
-    "github.com/soulteary/health-kit/v2/fiberadapter"
+    health "github.com/soulteary/health-kit/v3"
+    "github.com/soulteary/health-kit/v3/fiberadapter"
 )
 
 app := fiber.New()
@@ -300,8 +315,8 @@ package main
 
 import (
     "github.com/gofiber/fiber/v3"
-    health "github.com/soulteary/health-kit/v2"
-    "github.com/soulteary/health-kit/v2/fiberadapter"
+    health "github.com/soulteary/health-kit/v3"
+    "github.com/soulteary/health-kit/v3/fiberadapter"
     "github.com/redis/go-redis/v9"
 )
 
@@ -329,7 +344,7 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v2"
+    health "github.com/soulteary/health-kit/v3"
 )
 
 func main() {
@@ -360,7 +375,7 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v2"
+    health "github.com/soulteary/health-kit/v3"
 )
 
 func main() {

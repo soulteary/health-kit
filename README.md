@@ -1,6 +1,6 @@
 # health-kit
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v2.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v2)
+[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v3.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v3)
 [![Go Report Card](.github/goreportcard.svg)](.github/goreportcard-report.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/soulteary/health-kit/graph/badge.svg)](https://codecov.io/gh/soulteary/health-kit)
@@ -10,11 +10,26 @@
 A unified health check toolkit for Go services. This package provides health check interfaces, probe implementations, multi-probe aggregation, and HTTP handlers compatible with both Fiber and net/http.
 
 
-> **Breaking in v2.4.0 — Fiber support moved to a subpackage.**
-> The Fiber handlers are now `github.com/soulteary/health-kit/v2/fiberadapter`,
-> so importing the root package no longer links Fiber (and fasthttp) into
-> binaries that never use it. In a net/http service that means **25 fewer
-> linked packages, 8 fewer modules and a 14% smaller binary**.
+> **Breaking in v3.0.0 — new module path, and Fiber support moved to a subpackage.**
+>
+> **Step 1 — everyone, including net/http-only users.** The module path is now
+> `github.com/soulteary/health-kit/v3`:
+>
+> ```bash
+> go get github.com/soulteary/health-kit/v3
+> go mod edit -droprequire github.com/soulteary/health-kit/v2
+> ```
+>
+> Then update the import path in your source. The major-version bump is
+> required by Go's import compatibility rule, because v3 removes exported
+> symbols; keeping them as shims was not an option, since a shim would import
+> Fiber again and give back the whole benefit below.
+>
+> **Step 2 — Fiber users only.** The Fiber handlers moved to
+> `github.com/soulteary/health-kit/v3/fiberadapter`, so importing the root
+> package no longer links Fiber (and fasthttp) into binaries that never use
+> it. In a net/http service that means **25 fewer linked packages, 8 fewer
+> modules and a 14% smaller binary**.
 >
 > | Before | After |
 > |---|---|
@@ -23,7 +38,9 @@ A unified health check toolkit for Go services. This package provides health che
 > | `health.FiberReadinessHandler(agg)` | `fiberadapter.ReadinessHandler(agg)` |
 > | `health.SimpleFiberHandler(name)` | `fiberadapter.SimpleHandler(name)` |
 >
-> Nothing on the net/http side changed.
+> Apart from the import path, no net/http API changed: `health.Handler`,
+> `LivenessHandler`, `ReadinessHandler` and `SimpleHandler` keep their
+> signatures and their behaviour.
 
 ## Features
 
@@ -39,7 +56,7 @@ A unified health check toolkit for Go services. This package provides health che
 ## Installation
 
 ```bash
-go get github.com/soulteary/health-kit/v2
+go get github.com/soulteary/health-kit/v3
 ```
 
 Version 2 uses Fiber v3 for all Fiber-specific handlers. Applications that still use Fiber v2 should remain on health-kit v1. The net/http handlers and probe APIs keep the same behavior.
@@ -50,7 +67,7 @@ Version 2 uses Fiber v3 for all Fiber-specific handlers. Applications that still
 
 ```go
 import (
-    health "github.com/soulteary/health-kit/v2"
+    health "github.com/soulteary/health-kit/v3"
 )
 
 // Create a configuration
@@ -132,7 +149,7 @@ disabledChecker := health.NewDisabledChecker("optional-redis").
 ```go
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v2"
+    health "github.com/soulteary/health-kit/v3"
 )
 
 // Full health check with all probes
@@ -153,8 +170,8 @@ http.HandleFunc("/health", health.SimpleHandler("myservice"))
 ```go
 import (
     "github.com/gofiber/fiber/v3"
-    health "github.com/soulteary/health-kit/v2"
-    "github.com/soulteary/health-kit/v2/fiberadapter"
+    health "github.com/soulteary/health-kit/v3"
+    "github.com/soulteary/health-kit/v3/fiberadapter"
 )
 
 app := fiber.New()
@@ -312,8 +329,8 @@ package main
 
 import (
     "github.com/gofiber/fiber/v3"
-    health "github.com/soulteary/health-kit/v2"
-    "github.com/soulteary/health-kit/v2/fiberadapter"
+    health "github.com/soulteary/health-kit/v3"
+    "github.com/soulteary/health-kit/v3/fiberadapter"
     "github.com/redis/go-redis/v9"
 )
 
@@ -341,7 +358,7 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v2"
+    health "github.com/soulteary/health-kit/v3"
 )
 
 func main() {
@@ -372,7 +389,7 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v2"
+    health "github.com/soulteary/health-kit/v3"
 )
 
 func main() {
