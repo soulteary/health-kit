@@ -7,76 +7,7 @@ import (
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
-
-// RedisChecker checks Redis connectivity
-type RedisChecker struct {
-	name    string
-	client  *redis.Client
-	timeout time.Duration
-}
-
-// NewRedisChecker creates a new Redis health checker
-func NewRedisChecker(client *redis.Client) *RedisChecker {
-	return &RedisChecker{
-		name:    "redis",
-		client:  client,
-		timeout: 2 * time.Second,
-	}
-}
-
-// NewRedisCheckerWithName creates a new Redis health checker with custom name
-func NewRedisCheckerWithName(name string, client *redis.Client) *RedisChecker {
-	return &RedisChecker{
-		name:    name,
-		client:  client,
-		timeout: 2 * time.Second,
-	}
-}
-
-// WithTimeout sets the timeout for Redis checks
-func (c *RedisChecker) WithTimeout(timeout time.Duration) *RedisChecker {
-	c.timeout = timeout
-	return c
-}
-
-// Name returns the checker name
-func (c *RedisChecker) Name() string {
-	return c.name
-}
-
-// Check performs the Redis health check
-func (c *RedisChecker) Check(ctx context.Context) CheckResult {
-	result := CheckResult{
-		Name:      c.name,
-		Timestamp: time.Now(),
-	}
-
-	if c.client == nil {
-		result.Status = StatusUnhealthy
-		result.Error = "redis client is nil"
-		return result
-	}
-
-	// Create timeout context
-	checkCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	start := time.Now()
-	err := c.client.Ping(checkCtx).Err()
-	result.Latency = time.Since(start)
-
-	if err != nil {
-		result.Status = StatusUnhealthy
-		result.Error = err.Error()
-	} else {
-		result.Status = StatusHealthy
-	}
-
-	return result
-}
 
 // HTTPChecker checks HTTP endpoint availability
 type HTTPChecker struct {

@@ -1,23 +1,32 @@
 // Package health provides a unified health check toolkit for Go services:
-// a common Checker interface, built-in probes for Redis, HTTP, SQL databases
-// and arbitrary functions, parallel multi-probe aggregation, and ready-made
-// net/http endpoint handlers.
+// a common Checker interface, built-in probes for HTTP endpoints, SQL
+// databases and arbitrary functions, parallel multi-probe aggregation, and
+// ready-made net/http endpoint handlers.
 //
 // # Layout
 //
-// The root package has no web-framework dependency. It provides the net/http
-// handlers ([Handler], [LivenessHandler], [ReadinessHandler], [SimpleHandler])
-// and the framework-agnostic core they are built on.
+// The root package depends on nothing outside the standard library. It
+// provides the net/http handlers ([Handler], [LivenessHandler],
+// [ReadinessHandler], [SimpleHandler]) and the framework-agnostic core they
+// are built on.
 //
-// Fiber support lives in the subpackage
-// github.com/soulteary/health-kit/v3/fiberadapter, so only importing that
-// links Fiber -- and with it fasthttp -- into your binary. A service on
-// net/http, Echo, Gin or chi pays nothing for Fiber support existing.
+// Every probe or handler that needs a third-party module lives in a
+// subpackage instead, so importing the root package never links a client or a
+// framework the service does not use:
+//
+//   - github.com/soulteary/health-kit/v3/fiberadapter -- Fiber v3 handlers,
+//     and with them fasthttp.
+//   - github.com/soulteary/health-kit/v3/redisprobe -- the Redis probe, and
+//     with it go-redis.
+//
+// A net/http service backed by Postgres pays nothing for either one existing;
+// only importing the subpackage links it in.
 //
 // # Getting started
 //
 //	aggregator := health.NewAggregator(health.DefaultConfig().WithServiceName("myservice"))
-//	aggregator.AddChecker(health.NewRedisChecker(redisClient))
+//	aggregator.AddChecker(health.NewDBChecker(db))
+//	aggregator.AddChecker(redisprobe.New(redisClient)) // only if you use Redis
 //
 //	http.Handle("/healthz", health.Handler(aggregator))
 //	http.Handle("/livez", health.LivenessHandler("myservice"))

@@ -9,8 +9,58 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
 
 ## [Unreleased]
 
+### Changed — BREAKING
+
+- **The Redis probe moved to the `redisprobe` subpackage.** The root package no
+  longer imports go-redis, so a binary that never talks to Redis no longer
+  links it. Measured against v3.0.0 for a program that imports only the root
+  package: 21 fewer linked packages, 4 fewer modules and a 17.5% smaller binary
+  (6,767,404 → 5,583,282 bytes). The root package now depends on nothing
+  outside the standard library, so that program's own `go.mod` ends up with no
+  `// indirect` requirement at all, and nine modules leave its `go.sum`:
+  go-redis and miniredis, plus the seven they drag along (bsm/ginkgo,
+  bsm/gomega, cespare/xxhash, klauspost/cpuid, yuin/gopher-lua, zeebo/xxh3 and
+  go.uber.org/atomic).
+
+  | Removed from the root package | Replacement |
+  |---|---|
+  | `health.RedisChecker` | `redisprobe.Checker` |
+  | `health.NewRedisChecker` | `redisprobe.New` |
+  | `health.NewRedisCheckerWithName` | `redisprobe.NewWithName` |
+
+  Keeping these as deprecated shims was not an option, for the reason the Fiber
+  handlers could not keep one in v3.0.0: a shim has to import go-redis, which
+  relinks it and gives back the entire benefit.
+
+  A subpackage is enough; go-redis does not need its own module. Module graph
+  pruning keeps a requirement that no imported package needs out of the
+  consumer's `go.mod` and `go.sum` entirely — which is what `fiberadapter`
+  already demonstrates for Fiber.
+
+  **Releasing this therefore means moving the module path to
+  `github.com/soulteary/health-kit/v4`**, by the same import compatibility rule
+  that forced `/v3`. The bump is deliberately not in the tree yet: do it in the
+  commit that cuts the release, together with this heading.
+
+- Nothing else changed. The remaining probes, the aggregator, the net/http
+  handlers and `fiberadapter` keep their signatures and their behaviour.
+
 ### Added
 
+- The `redisprobe` subpackage. `redisprobe.Pinger` is the part of a go-redis
+  client the probe uses, so `*redis.Client`, `*redis.ClusterClient`,
+  `*redis.Ring` and `redis.UniversalClient` all work where the root package
+  took only `*redis.Client` — a Cluster or Sentinel deployment no longer needs
+  a probe of its own.
+
+  Taking an interface reopens a hole the old `*redis.Client` field closed by
+  construction, so the probe closes it explicitly: a plain `p == nil` misses a
+  typed nil, such as an unassigned `*redis.Client` field, and pinging one
+  panics. `redisprobe` checks through `reflect` and reports it unhealthy
+  instead, because a health probe that takes down the process is worse than
+  the outage it was meant to report.
+- `redisprobe.DefaultTimeout`, naming the 2s bound on a single PING that
+  `NewRedisChecker` applied anonymously.
 - `CHANGELOG.md` and `SECURITY.md`.
 - Runnable examples (`Example`, `ExampleDefaultConfig`,
   `ExampleDefaultInternalConfig`, `ExampleDecide`, `ExampleConfig_ClientIP`)

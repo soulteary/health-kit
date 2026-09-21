@@ -42,7 +42,8 @@
 ## 特性
 
 - **检查器接口**：所有探针的统一健康检查接口
-- **内置探针**：Redis、HTTP、数据库和自定义探针
+- **内置探针**：根包提供 HTTP、数据库和自定义探针；Redis 探针位于 `redisprobe` 子包
+- **用多少链多少**：根包不依赖标准库以外的任何东西，Fiber 与 Redis 各自独立成子包
 - **并行聚合**：并行运行多个健康检查并聚合结果
 - **HTTP 处理器**：标准库处理器，以及位于独立子包中的 Fiber 适配器
 - **框架无关内核**：`Decide` 与 `ClientIPSource` 均已导出，为 Echo、Gin、chi
@@ -58,11 +59,17 @@
 go get github.com/soulteary/health-kit/v3
 ```
 
-根包不依赖任何 Web 框架。Fiber 支持位于子包中，只有导入它才会链接 Fiber（以及 fasthttp）：
+根包不依赖标准库以外的任何东西。凡是需要第三方模块的能力都放在各自的子包里，二进制只会链接服务真正用到的部分：
 
 ```bash
+# Fiber v3 处理器——会链接 Fiber，以及随之而来的 fasthttp
 go get github.com/soulteary/health-kit/v3/fiberadapter
+
+# Redis 探针——会链接 go-redis
+go get github.com/soulteary/health-kit/v3/redisprobe
 ```
+
+一个跑在 net/http、后端是 Postgres 的服务两个都不导入，也就两个都不用付代价。与「Redis 探针仍在根包」的构建相比实测：少链接 21 个包、少 4 个模块、二进制小 17.5%；你自己的 `go.mod` 里一条 `// indirect` 都不会多出来，`go.sum` 里也会少掉九个模块。
 
 Fiber Handler 基于 Fiber v3。仍使用 Fiber v2 的应用应继续使用 health-kit v1；net/http Handler 与探针 API 的行为保持不变。
 
@@ -85,7 +92,7 @@ aggregator := health.NewAggregator(config)
 
 // 添加检查器
 aggregator.AddCheckers(
-    health.NewRedisChecker(redisClient),
+    health.NewDBChecker(db),
     health.NewHTTPChecker("herald", "http://herald:8080/healthz"),
 )
 
@@ -96,14 +103,22 @@ fmt.Printf("状态: %s\n", result.Status)
 
 ### Redis 健康检查
 
+Redis 探针位于 `redisprobe` 子包，因此不使用 Redis 的服务永远不会链接 go-redis：
+
 ```go
+import "github.com/soulteary/health-kit/v3/redisprobe"
+
 // 基础 Redis 检查器
-redisChecker := health.NewRedisChecker(redisClient)
+redisChecker := redisprobe.New(redisClient)
 
 // 自定义名称和超时
-redisChecker := health.NewRedisCheckerWithName("session-redis", redisClient).
+redisChecker := redisprobe.NewWithName("session-redis", redisClient).
     WithTimeout(2 * time.Second)
+
+aggregator.AddChecker(redisChecker)
 ```
+
+它接受任何能响应 `PING` 的客户端——`*redis.Client`、`*redis.ClusterClient`、`*redis.Ring` 和 `redis.UniversalClient` 都可以——所以 Cluster 与 Sentinel 部署用的是同一个探针。客户端为 nil 时报告为 unhealthy 而不是 panic，未赋值的 `*redis.Client` 字段这种带类型的 nil 也一样。
 
 ### HTTP 依赖检查
 
@@ -320,7 +335,7 @@ config := health.DefaultConfig().
 
 aggregator := health.NewAggregator(config)
 aggregator.AddCheckers(
-    health.NewRedisChecker(redisClient),          // 关键
+    redisprobe.New(redisClient),                   // 关键
     health.NewDBChecker(db),                       // 关键
     health.NewHTTPChecker("cache", cacheURL),      // 非关键
 )
@@ -375,10 +390,11 @@ health.NewAggregator(health.DefaultInternalConfig()) // 详情 + 单项结果
 health-kit/
 ├── checker.go         # 检查器接口、结果类型及 JSON 序列化
 ├── config.go          # 配置，支持 IP 白名单
-├── probes.go          # 内置探针（Redis、HTTP、DB、自定义、禁用）
+├── probes.go          # 内置探针（HTTP、DB、自定义、禁用）
 ├── aggregator.go      # 多探针聚合，支持并行执行
 ├── handler.go         # net/http 处理器 + 框架无关的 Decide 核心
 ├── fiberadapter/      # Fiber v3 适配器（只有导入它的二进制才会链接 Fiber）
+├── redisprobe/        # Redis 探针（只有导入它的二进制才会链接 go-redis）
 └── *_test.go          # 完整测试
 ```
 
@@ -393,6 +409,7 @@ import (
     "github.com/gofiber/fiber/v3"
     health "github.com/soulteary/health-kit/v3"
     "github.com/soulteary/health-kit/v3/fiberadapter"
+    "github.com/soulteary/health-kit/v3/redisprobe"
     "github.com/redis/go-redis/v9"
 )
 
@@ -404,7 +421,7 @@ func main() {
         WithTimeout(2 * time.Second)
     
     aggregator := health.NewAggregator(config)
-    aggregator.AddChecker(health.NewRedisChecker(redisClient))
+    aggregator.AddChecker(redisprobe.New(redisClient))
     
     app := fiber.New()
     app.Get("/healthz", fiberadapter.Handler(aggregator))
@@ -421,6 +438,7 @@ package main
 import (
     "net/http"
     health "github.com/soulteary/health-kit/v3"
+    "github.com/soulteary/health-kit/v3/redisprobe"
 )
 
 func main() {
@@ -431,7 +449,7 @@ func main() {
     
     aggregator := health.NewAggregator(config)
     aggregator.AddCheckers(
-        health.NewRedisChecker(redisClient),
+        redisprobe.New(redisClient),
         health.NewHTTPChecker("herald", "http://herald:8080/healthz").WithTimeout(2*time.Second),
         health.NewHTTPChecker("warden", "http://warden:8080/health").WithTimeout(2*time.Second),
     )
@@ -452,6 +470,7 @@ package main
 import (
     "net/http"
     health "github.com/soulteary/health-kit/v3"
+    "github.com/soulteary/health-kit/v3/redisprobe"
 )
 
 func main() {
@@ -464,7 +483,7 @@ func main() {
     
     // Warden 在 ONLY_LOCAL 模式下 Redis 是可选的
     if redisEnabled {
-        aggregator.AddChecker(health.NewRedisChecker(redisClient))
+        aggregator.AddChecker(redisprobe.New(redisClient))
     } else {
         aggregator.AddChecker(health.NewDisabledChecker("redis"))
     }

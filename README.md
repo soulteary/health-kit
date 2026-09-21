@@ -45,7 +45,10 @@ A unified health check toolkit for Go services. This package provides health che
 ## Features
 
 - **Checker Interface**: Unified health check interface for all probes
-- **Built-in Probes**: Redis, HTTP, Database, and Custom probes
+- **Built-in Probes**: HTTP, Database and Custom probes in the root package;
+  Redis in the `redisprobe` subpackage
+- **Pay For What You Import**: the root package depends on nothing outside the
+  standard library — Fiber and Redis each live in their own subpackage
 - **Parallel Aggregation**: Run multiple health checks in parallel with aggregated results
 - **HTTP Handlers**: Standard library handlers, plus a Fiber adapter in its own subpackage
 - **Framework-Agnostic Core**: `Decide` and `ClientIPSource` are exported, so an
@@ -61,12 +64,23 @@ A unified health check toolkit for Go services. This package provides health che
 go get github.com/soulteary/health-kit/v3
 ```
 
-The root package has no web-framework dependency. Fiber support lives in a
-subpackage, so only importing it links Fiber (and fasthttp):
+The root package depends on nothing outside the standard library. Everything
+that needs a third-party module lives in its own subpackage, so a binary links
+only what the service actually uses:
 
 ```bash
+# Fiber v3 handlers — links Fiber, and with it fasthttp
 go get github.com/soulteary/health-kit/v3/fiberadapter
+
+# Redis probe — links go-redis
+go get github.com/soulteary/health-kit/v3/redisprobe
 ```
+
+A net/http service backed by Postgres imports neither and pays for neither.
+Measured against a build that took the Redis probe from the root package: 21
+fewer linked packages, 4 fewer modules and a 17.5% smaller binary — and your
+own `go.mod` gains no `// indirect` requirement at all, while nine modules
+leave your `go.sum`.
 
 Fiber handlers target Fiber v3. Applications still on Fiber v2 should remain on
 health-kit v1. The net/http handlers and probe APIs keep the same behavior.
@@ -90,7 +104,7 @@ aggregator := health.NewAggregator(config)
 
 // Add checkers
 aggregator.AddCheckers(
-    health.NewRedisChecker(redisClient),
+    health.NewDBChecker(db),
     health.NewHTTPChecker("herald", "http://herald:8080/healthz"),
 )
 
@@ -101,14 +115,27 @@ fmt.Printf("Status: %s\n", result.Status)
 
 ### Redis Health Check
 
+The Redis probe lives in `redisprobe`, so services that do not use Redis never
+link go-redis:
+
 ```go
+import "github.com/soulteary/health-kit/v3/redisprobe"
+
 // Basic Redis checker
-redisChecker := health.NewRedisChecker(redisClient)
+redisChecker := redisprobe.New(redisClient)
 
 // With custom name and timeout
-redisChecker := health.NewRedisCheckerWithName("session-redis", redisClient).
+redisChecker := redisprobe.NewWithName("session-redis", redisClient).
     WithTimeout(2 * time.Second)
+
+aggregator.AddChecker(redisChecker)
 ```
+
+It takes anything that can answer `PING` — `*redis.Client`,
+`*redis.ClusterClient`, `*redis.Ring` and `redis.UniversalClient` all qualify —
+so a Cluster or Sentinel deployment uses the same probe. A nil client is
+reported as unhealthy rather than panicking, including a typed nil such as an
+unassigned `*redis.Client` field.
 
 ### HTTP Dependency Check
 
@@ -336,8 +363,8 @@ config := health.DefaultConfig().
 
 aggregator := health.NewAggregator(config)
 aggregator.AddCheckers(
-    health.NewRedisChecker(redisClient),          // Critical
-    health.NewDBChecker(db),                       // Critical  
+    redisprobe.New(redisClient),                   // Critical
+    health.NewDBChecker(db),                       // Critical
     health.NewHTTPChecker("cache", cacheURL),      // Non-critical
 )
 
@@ -395,10 +422,11 @@ authentication or only reachable from inside the cluster, or set
 health-kit/
 ├── checker.go         # Checker interface, result types, and JSON marshaling
 ├── config.go          # Configuration with IP whitelist support
-├── probes.go          # Built-in probes (Redis, HTTP, DB, Custom, Disabled)
+├── probes.go          # Built-in probes (HTTP, DB, Custom, Disabled)
 ├── aggregator.go      # Multi-probe aggregation with parallel execution
 ├── handler.go         # net/http handlers + the framework-agnostic Decide core
 ├── fiberadapter/      # Fiber v3 adapter (only importers of this link Fiber)
+├── redisprobe/        # Redis probe (only importers of this link go-redis)
 └── *_test.go          # Comprehensive tests
 ```
 
@@ -413,6 +441,7 @@ import (
     "github.com/gofiber/fiber/v3"
     health "github.com/soulteary/health-kit/v3"
     "github.com/soulteary/health-kit/v3/fiberadapter"
+    "github.com/soulteary/health-kit/v3/redisprobe"
     "github.com/redis/go-redis/v9"
 )
 
@@ -424,7 +453,7 @@ func main() {
         WithTimeout(2 * time.Second)
     
     aggregator := health.NewAggregator(config)
-    aggregator.AddChecker(health.NewRedisChecker(redisClient))
+    aggregator.AddChecker(redisprobe.New(redisClient))
     
     app := fiber.New()
     app.Get("/healthz", fiberadapter.Handler(aggregator))
@@ -441,6 +470,7 @@ package main
 import (
     "net/http"
     health "github.com/soulteary/health-kit/v3"
+    "github.com/soulteary/health-kit/v3/redisprobe"
 )
 
 func main() {
@@ -451,7 +481,7 @@ func main() {
     
     aggregator := health.NewAggregator(config)
     aggregator.AddCheckers(
-        health.NewRedisChecker(redisClient),
+        redisprobe.New(redisClient),
         health.NewHTTPChecker("herald", "http://herald:8080/healthz").WithTimeout(2*time.Second),
         health.NewHTTPChecker("warden", "http://warden:8080/health").WithTimeout(2*time.Second),
     )
@@ -472,6 +502,7 @@ package main
 import (
     "net/http"
     health "github.com/soulteary/health-kit/v3"
+    "github.com/soulteary/health-kit/v3/redisprobe"
 )
 
 func main() {
@@ -484,7 +515,7 @@ func main() {
     
     // Redis is optional for Warden in ONLY_LOCAL mode
     if redisEnabled {
-        aggregator.AddChecker(health.NewRedisChecker(redisClient))
+        aggregator.AddChecker(redisprobe.New(redisClient))
     } else {
         aggregator.AddChecker(health.NewDisabledChecker("redis"))
     }
