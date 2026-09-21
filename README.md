@@ -47,7 +47,9 @@ A unified health check toolkit for Go services. This package provides health che
 - **Checker Interface**: Unified health check interface for all probes
 - **Built-in Probes**: Redis, HTTP, Database, and Custom probes
 - **Parallel Aggregation**: Run multiple health checks in parallel with aggregated results
-- **HTTP Handlers**: Standard library and Fiber-compatible `/health` endpoint handlers
+- **HTTP Handlers**: Standard library handlers, plus a Fiber adapter in its own subpackage
+- **Framework-Agnostic Core**: `Decide` and `ClientIPSource` are exported, so an
+  adapter for Echo, Gin or chi is ~20 lines and shares one trusted-proxy rule
 - **Kubernetes Support**: Dedicated liveness and readiness probe handlers
 - **IP Whitelisting**: Restrict health endpoint access to specific IPs/CIDRs
 - **Critical Checks**: Distinguish between critical and non-critical dependencies
@@ -59,7 +61,15 @@ A unified health check toolkit for Go services. This package provides health che
 go get github.com/soulteary/health-kit/v3
 ```
 
-Version 2 uses Fiber v3 for all Fiber-specific handlers. Applications that still use Fiber v2 should remain on health-kit v1. The net/http handlers and probe APIs keep the same behavior.
+The root package has no web-framework dependency. Fiber support lives in a
+subpackage, so only importing it links Fiber (and fasthttp):
+
+```bash
+go get github.com/soulteary/health-kit/v3/fiberadapter
+```
+
+Fiber handlers target Fiber v3. Applications still on Fiber v2 should remain on
+health-kit v1. The net/http handlers and probe APIs keep the same behavior.
 
 ## Usage
 
@@ -189,6 +199,78 @@ app.Get("/readyz", fiberadapter.ReadinessHandler(aggregator))
 // Simple health check
 app.Get("/health", fiberadapter.SimpleHandler("myservice"))
 ```
+
+### Adapters for Other Frameworks (Echo, Gin, chi…)
+
+There is no Echo or Gin adapter in this repository, and you do not need one:
+the whole endpoint decision is framework-agnostic and exported. An adapter is a
+translation layer of about twenty lines.
+
+Two pieces do the work. `health.Decide` applies the IP whitelist, runs the
+checks and reduces the outcome to a status code and a body:
+
+```go
+type Decision struct {
+    Forbidden  bool // client IP is not on the whitelist
+    StatusCode int  // always set, including on a forbidden decision
+    Body       any  // serialize as JSON
+}
+
+func Decide(ctx context.Context, aggregator *Aggregator, src ClientIPSource) Decision
+```
+
+`health.ClientIPSource` is the only thing you implement — the minimal view of a
+request needed to resolve a client IP:
+
+```go
+type ClientIPSource interface {
+    RemoteIP() net.IP            // peer address, nil when unavailable
+    Header(name string) string   // request header, "" when absent
+}
+```
+
+The trusted-proxy rule itself — when `X-Forwarded-For` and `X-Real-IP` may be
+believed, and in what order — lives in `Config.ClientIP` and is shared by every
+adapter. That is deliberate: a rule that disagrees with itself across
+frameworks is an IP-whitelist bypass, not a cosmetic difference. Do not
+reimplement it.
+
+A complete Echo adapter:
+
+```go
+type echoSource struct{ c echo.Context }
+
+func (s echoSource) RemoteIP() net.IP {
+    host, _, err := net.SplitHostPort(s.c.Request().RemoteAddr)
+    if err != nil {
+        return net.ParseIP(s.c.Request().RemoteAddr)
+    }
+    return net.ParseIP(host)
+}
+
+func (s echoSource) Header(name string) string { return s.c.Request().Header.Get(name) }
+
+func Handler(aggregator *health.Aggregator) echo.HandlerFunc {
+    return func(c echo.Context) error {
+        d := health.Decide(c.Request().Context(), aggregator, echoSource{c: c})
+        if d.Forbidden {
+            return c.JSON(http.StatusForbidden, map[string]string{"error": "Forbidden"})
+        }
+        return c.JSON(d.StatusCode, d.Body)
+    }
+}
+```
+
+Note that `Decide` does **not** render the 403 body — each adapter does. The
+two in-tree adapters disagree on it for historical reasons (`health.Handler`
+answers `text/plain`, `fiberadapter.Handler` answers JSON), so unifying them
+would be a silent behaviour change for somebody. Pick whichever matches the
+rest of your API.
+
+If you write an adapter, the one test worth copying from `fiberadapter` is the
+cross-framework parity table: run the same headers through your
+`ClientIPSource` and through `health.RequestSource`, and assert they resolve
+the same client IP.
 
 ### Configuration Options
 
@@ -497,8 +579,11 @@ func main() {
 ## Requirements
 
 - **Go 1.27+** (`go.mod` declares `go 1.27.0`)
-- github.com/gofiber/fiber/v3 v3.4.0+ (for Fiber handlers)
-- github.com/redis/go-redis/v9 v9.7.3+ (for Redis probe)
+- github.com/gofiber/fiber/v3 v3.5.0+ — **only** if you import `fiberadapter`;
+  the root package does not pull it in
+- github.com/redis/go-redis/v9 v9.22.0+ (for the Redis probe)
+- modernc.org/sqlite v1.59.0+ and github.com/alicebob/miniredis/v2 v2.39.0+ are
+  test-only dependencies
 
 ## Test Coverage
 
@@ -507,11 +592,47 @@ Run tests:
 ```bash
 go test ./... -v
 
-# With coverage
-go test ./... -coverprofile=coverage.out -covermode=atomic
+# With coverage — what CI runs
+go test -race -coverprofile=coverage.out -covermode=atomic ./...
 go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
+
+Both packages are at **100% statement coverage**. Note that `fiberadapter`'s
+tests are an *external* test package (`package fiberadapter_test`): they
+compile only against the exported API, which keeps that API honest about being
+sufficient for an out-of-tree adapter.
+
+## Upgrade Notes (v3.0.0)
+
+**Breaking: the module path is now `github.com/soulteary/health-kit/v3`, and
+the Fiber handlers moved to the `fiberadapter` subpackage.** See the note at
+the top of this file for the two migration steps. Everything else is additive.
+
+- **Newly exported for adapter authors**: `Decide`, `Decision`,
+  `ClientIPSource`, `RequestSource` and `SimpleResponse` (was the unexported
+  `simpleResponse`). See *Adapters for Other Frameworks* above.
+- **One trusted-proxy implementation.** `getClientIPFromRequest` and
+  `getClientIPFromFiber` were two copies of the same rule, differing only in
+  where the peer address and headers came from. They are now `Config.ClientIP`
+  behind a two-method interface. No behaviour changed, but a rule that can
+  disagree with itself across frameworks is a whitelist bypass, so it is worth
+  knowing there is only one of it now.
+- **`Decision.StatusCode` is set even when `Forbidden` is true.** Only matters
+  if you write your own adapter and set the status unconditionally.
+- **The 403 bodies are still not unified** — `health.Handler` answers
+  `text/plain`, `fiberadapter.Handler` answers JSON, as both always have. Both
+  are now pinned by tests so the difference cannot drift silently.
+
+Dependency refresh in the same release:
+
+- `modernc.org/sqlite` v1.59.0 (was v1.58.0), `modernc.org/libc` v1.77.0,
+  `github.com/dustin/go-humanize` v1.1.0, `github.com/gofiber/schema` v1.8.7,
+  `github.com/gofiber/utils/v2` v2.5.2, `github.com/molecule-man/go-brrr`
+  v1.1.1, `go.uber.org/atomic` v1.12.0.
+- CI actions: `actions/checkout`, `actions/setup-go` and
+  `actions/upload-artifact` to v7, `codecov/codecov-action` to v7,
+  `soulteary/goreportcard-action` to v1.1.2.
 
 ## Upgrade Notes (v2.3.0)
 
