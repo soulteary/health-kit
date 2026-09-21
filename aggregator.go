@@ -186,11 +186,26 @@ collect:
 		})
 	}
 
-	// Determine overall status from the combined results, so a name recorded
-	// more than once is counted once.
+	// Reduce the combined results, so a name recorded more than once counts
+	// once.
+	result.Status = a.overallStatus(result.Checks)
+	result.TotalLatency = time.Since(start)
+	return result
+}
+
+// overallStatus reduces per-check results to the endpoint's status: a failing
+// critical check makes the whole endpoint unhealthy, a failing non-critical
+// one only degrades it. Disabled and healthy checks are skipped.
+//
+// Shared by Check and CheckSequential. It was written out in both, which is
+// the kind of duplication that quietly stops matching: whichever copy a later
+// change misses, one of the two entry points starts reporting a different
+// status for the same set of results.
+func (a *Aggregator) overallStatus(checks map[string]CheckResult) Status {
 	hasCriticalFailure := false
 	hasNonCriticalFailure := false
-	for name, checkResult := range result.Checks {
+
+	for name, checkResult := range checks {
 		if checkResult.Status == StatusDisabled || checkResult.Status.IsHealthy() {
 			continue
 		}
@@ -201,16 +216,14 @@ collect:
 		}
 	}
 
-	if hasCriticalFailure {
-		result.Status = StatusUnhealthy
-	} else if hasNonCriticalFailure {
-		result.Status = StatusDegraded
-	} else {
-		result.Status = StatusHealthy
+	switch {
+	case hasCriticalFailure:
+		return StatusUnhealthy
+	case hasNonCriticalFailure:
+		return StatusDegraded
+	default:
+		return StatusHealthy
 	}
-
-	result.TotalLatency = time.Since(start)
-	return result
 }
 
 // CheckSequential performs all health checks sequentially
@@ -261,28 +274,7 @@ func (a *Aggregator) CheckSequential(ctx context.Context) AggregatedResult {
 		result.Checks[name] = checkResult
 	}
 
-	hasCriticalFailure := false
-	hasNonCriticalFailure := false
-	for name, checkResult := range result.Checks {
-		if checkResult.Status == StatusDisabled || checkResult.Status.IsHealthy() {
-			continue
-		}
-		if a.config.IsCritical(name) {
-			hasCriticalFailure = true
-		} else {
-			hasNonCriticalFailure = true
-		}
-	}
-
-	// Determine overall status
-	if hasCriticalFailure {
-		result.Status = StatusUnhealthy
-	} else if hasNonCriticalFailure {
-		result.Status = StatusDegraded
-	} else {
-		result.Status = StatusHealthy
-	}
-
+	result.Status = a.overallStatus(result.Checks)
 	result.TotalLatency = time.Since(start)
 	return result
 }

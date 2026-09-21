@@ -677,6 +677,18 @@ per-check detail.
   the output for precisely the failures an operator is reading.
 - **Requirements said Go 1.26**; `go.mod` requires `1.27.0`.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release history. The
+*Upgrade Notes* sections above cover the breaking releases in more detail.
+
+## Security
+
+`DefaultConfig()` withholds probe detail on purpose, and forwarded headers are
+believed only from a configured trusted proxy. [SECURITY.md](SECURITY.md)
+explains both, and how to report a vulnerability — please do not open a public
+issue for one.
+
 ## Contributing
 
 1. Fork the repository
