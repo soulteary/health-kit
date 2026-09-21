@@ -580,7 +580,8 @@ func main() {
 - **Go 1.27+**（`go.mod` 声明 `go 1.27.0`）
 - github.com/gofiber/fiber/v3 v3.5.0+ —— **仅当**你导入 `fiberadapter` 时需要，
   根包不会引入它
-- github.com/redis/go-redis/v9 v9.22.0+（用于 Redis 探针）
+- github.com/redis/go-redis/v9 v9.22.0+ —— **仅当**你导入 `redisprobe` 时需要，
+  根包不会引入它
 - modernc.org/sqlite v1.59.0+ 与 github.com/alicebob/miniredis/v2 v2.39.0+ 为
   仅测试依赖
 
@@ -597,7 +598,7 @@ go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
 
-两个包均为 **100% 语句覆盖**。注意 `fiberadapter` 的测试是*外部*测试包
+三个包均为 **100% 语句覆盖**。注意 `fiberadapter` 的测试是*外部*测试包
 （`package fiberadapter_test`）：它只针对导出 API 编译，以此保证这套 API
 确实够外部适配器使用。
 

@@ -612,7 +612,8 @@ func main() {
 - **Go 1.27+** (`go.mod` declares `go 1.27.0`)
 - github.com/gofiber/fiber/v3 v3.5.0+ — **only** if you import `fiberadapter`;
   the root package does not pull it in
-- github.com/redis/go-redis/v9 v9.22.0+ (for the Redis probe)
+- github.com/redis/go-redis/v9 v9.22.0+ — **only** if you import `redisprobe`;
+  the root package does not pull it in
 - modernc.org/sqlite v1.59.0+ and github.com/alicebob/miniredis/v2 v2.39.0+ are
   test-only dependencies
 
@@ -629,10 +630,10 @@ go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
 
-Both packages are at **100% statement coverage**. Note that `fiberadapter`'s
-tests are an *external* test package (`package fiberadapter_test`): they
-compile only against the exported API, which keeps that API honest about being
-sufficient for an out-of-tree adapter.
+All three packages are at **100% statement coverage**. Note that
+`fiberadapter`'s tests are an *external* test package (`package
+fiberadapter_test`): they compile only against the exported API, which keeps
+that API honest about being sufficient for an out-of-tree adapter.
 
 ## Upgrade Notes (v3.0.0)
 
