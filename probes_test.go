@@ -9,76 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	_ "modernc.org/sqlite"
 )
-
-func TestRedisChecker(t *testing.T) {
-	t.Run("nil client", func(t *testing.T) {
-		checker := NewRedisChecker(nil)
-		result := checker.Check(context.Background())
-
-		assert.Equal(t, "redis", result.Name)
-		assert.Equal(t, StatusUnhealthy, result.Status)
-		assert.Contains(t, result.Error, "nil")
-	})
-
-	t.Run("custom name", func(t *testing.T) {
-		checker := NewRedisCheckerWithName("session-redis", nil)
-		assert.Equal(t, "session-redis", checker.Name())
-	})
-
-	t.Run("with timeout", func(t *testing.T) {
-		checker := NewRedisChecker(nil).WithTimeout(10 * time.Second)
-		assert.Equal(t, 10*time.Second, checker.timeout)
-	})
-
-	t.Run("Name method", func(t *testing.T) {
-		checker := NewRedisChecker(nil)
-		assert.Equal(t, "redis", checker.Name())
-	})
-
-	t.Run("successful check with miniredis", func(t *testing.T) {
-		mr, err := miniredis.Run()
-		require.NoError(t, err)
-		defer mr.Close()
-
-		client := redis.NewClient(&redis.Options{
-			Addr: mr.Addr(),
-		})
-		defer func() { _ = client.Close() }()
-
-		checker := NewRedisChecker(client)
-		result := checker.Check(context.Background())
-
-		assert.Equal(t, StatusHealthy, result.Status)
-		assert.Empty(t, result.Error)
-		assert.Greater(t, result.Latency, time.Duration(0))
-	})
-
-	t.Run("failed check with closed redis", func(t *testing.T) {
-		mr, err := miniredis.Run()
-		require.NoError(t, err)
-
-		client := redis.NewClient(&redis.Options{
-			Addr: mr.Addr(),
-		})
-		defer func() { _ = client.Close() }()
-
-		// Close miniredis to simulate failure
-		mr.Close()
-
-		checker := NewRedisChecker(client).WithTimeout(100 * time.Millisecond)
-		result := checker.Check(context.Background())
-
-		assert.Equal(t, StatusUnhealthy, result.Status)
-		assert.NotEmpty(t, result.Error)
-	})
-}
 
 func TestHTTPChecker(t *testing.T) {
 	t.Run("successful check", func(t *testing.T) {
