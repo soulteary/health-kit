@@ -35,6 +35,17 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
   dependency major is a judgement call. The release gate is an action too, so
   a silently stale action would be a stale release check.
 
+### Changed
+
+- CI builds `golangci-lint` with the toolchain `setup-go` installs, instead of
+  taking a release binary from `golangci-lint-action`. Those binaries are
+  compiled with Go 1.26 and refuse a module targeting a newer language
+  version, so with `go 1.27.0` in `go.mod` the lint job exited with "the Go
+  language version (go1.26) used to build golangci-lint is lower than the
+  targeted Go version (1.27.0)" before reading a line of code. Compiled with
+  1.27 the same linter runs clean on all three packages. The `security-scan`
+  job already installed `govulncheck` this way and was never affected.
+
 ### Fixed
 
 - `(*Aggregator).Check` was over gocyclo's complexity threshold (17 vs 15). The

@@ -95,12 +95,15 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
+      # Built here rather than taken from golangci-lint-action, which downloads
+      # a release binary. Those are compiled with Go 1.26 and refuse a module
+      # targeting a newer language version -- go.mod declares go 1.27.0 -- so
+      # the action exits before reading any code. Restore the action once its
+      # releases are built with 1.27.
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: latest
-          args: --timeout=5m
-          only-new-issues: false
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout=5m ./...
 
   # Dependency security scan
   security-scan:
