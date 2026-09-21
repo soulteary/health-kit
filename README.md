@@ -547,6 +547,9 @@ func main() {
 
 ### Degraded Response
 
+Abbreviated: the top-level `timestamp` and `total_latency_ms`, and each check's
+`timestamp`, are always present.
+
 ```json
 {
   "status": "degraded",
@@ -569,12 +572,21 @@ func main() {
 
 ## HTTP Status Codes
 
-| Health Status | HTTP Status Code |
-|---------------|------------------|
-| ok            | 200 OK           |
-| degraded      | 200 OK           |
-| unhealthy     | 503 Service Unavailable |
-| disabled      | N/A (skipped in aggregation) |
+`HTTPStatusCode` maps a status to a code:
+
+| Health status | `HTTPStatusCode` | Can an endpoint report it? |
+|---------------|------------------|----------------------------|
+| `ok`          | 200 OK           | yes |
+| `degraded`    | 200 OK           | yes |
+| `unhealthy`   | 503 Service Unavailable | yes |
+| `disabled`    | 503 Service Unavailable | no |
+| `unknown`     | 503 Service Unavailable | no |
+
+`disabled` and `unknown` are per-check statuses. `Aggregator` reduces to one of
+the first three, so no endpoint answers 503 on their account: a disabled check
+still appears under `checks`, it is just skipped when reducing to the overall
+status. The last two rows matter only if you call `HTTPStatusCode` yourself
+with a single check's status — anything outside the first three maps to 503.
 
 ## Requirements
 

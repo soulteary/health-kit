@@ -61,6 +61,13 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
 - Both compare links at the foot of this file pointed at `HEAD`, so
   `[Unreleased]` covered everything back to v2.3.0 and `[3.0.0]` grew with every
   commit instead of ending at its tag.
+- Both READMEs' HTTP status code table listed `disabled` as "N/A (skipped in
+  aggregation)". `HTTPStatusCode` returns 503 for it, and for `unknown`, which
+  the table did not list at all. What is true is narrower: `Aggregator` never
+  reduces to either status, and a disabled check still appears under `checks` —
+  it is skipped only when computing the overall status. The table now says
+  what the function returns and which statuses an endpoint can actually
+  report.
 
 ## [3.0.0] — 2026-09-21
 

@@ -527,6 +527,9 @@ func main() {
 
 ### 降级响应
 
+此处为节选：顶层的 `timestamp`、`total_latency_ms` 以及每个探针的 `timestamp`
+始终存在。
+
 ```json
 {
   "status": "degraded",
@@ -549,12 +552,20 @@ func main() {
 
 ## HTTP 状态码
 
-| 健康状态 | HTTP 状态码 |
-|---------|------------|
-| ok | 200 OK |
-| degraded | 200 OK |
-| unhealthy | 503 Service Unavailable |
-| disabled | 不适用（聚合时跳过） |
+`HTTPStatusCode` 把状态映射为状态码：
+
+| 健康状态 | `HTTPStatusCode` | 端点会报告吗？ |
+|---------|------------------|----------------|
+| `ok` | 200 OK | 会 |
+| `degraded` | 200 OK | 会 |
+| `unhealthy` | 503 Service Unavailable | 会 |
+| `disabled` | 503 Service Unavailable | 不会 |
+| `unknown` | 503 Service Unavailable | 不会 |
+
+`disabled` 和 `unknown` 是**单个探针**的状态。`Aggregator` 只会归约出前三种，
+所以端点不会因为它们返回 503：被禁用的探针仍然出现在 `checks` 里，只是在归约
+整体状态时被跳过。后两行只在你自己拿单个探针的状态去调 `HTTPStatusCode` 时才
+有意义 —— 前三种之外的一切都映射为 503。
 
 ## 要求
 
