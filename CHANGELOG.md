@@ -18,6 +18,22 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
 - A package doc in `doc.go` describing the layout, the
   `DefaultConfig`/`DefaultInternalConfig` privacy distinction, and how to write
   an adapter.
+- `.github/workflows/release.yml`. Eleven tags exist with nothing having
+  checked any of them, and the one mistake this repository has actually made —
+  `v1.4.0` tagged on a commit declaring `/v2`, leaving the tag unfetchable and
+  the proxy's v1 list stopping at v1.3.0 — is the kind that is caught at tag
+  time or not at all. It runs on a `v*` tag (and on demand): the module path
+  must carry the tag's major version, with v0 and v1 taking no suffix, and both
+  READMEs' `go get` line must name that same path. Then the CI gate against the
+  tagged commit — gofmt, `go mod tidy` cleanliness, vet, golangci-lint, `go
+  test -race` with coverage, and govulncheck. The guard was exercised against
+  eleven tag/module pairs, among them the real `v1.4.0`/`/v2` pair and a
+  `v4.0.0` tag on a `/v3` module. Verification only: it publishes nothing and
+  takes no write permissions.
+- `.github/dependabot.yml`. Weekly gomod and github-actions updates, minor and
+  patch grouped into one PR, majors left separate — for this module a
+  dependency major is a judgement call. The release gate is an action too, so
+  a silently stale action would be a stale release check.
 
 ### Fixed
 
@@ -27,9 +43,15 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
   change; `Check` drops to 11 and `CheckSequential` to 5.
 - The package doc still claimed the root package provided "HTTP handlers
   compatible with both Fiber and net/http". It has had no Fiber handlers since
-  v3.0.0.
+  v3.0.0. Both READMEs opened with the same claim and were missed at the time;
+  they now say what the root package actually ships, and where Fiber lives.
+- The `[3.0.0]` heading still read "unreleased" although the tag exists and the
+  proxy has served it since 2026-09-21.
+- Both compare links at the foot of this file pointed at `HEAD`, so
+  `[Unreleased]` covered everything back to v2.3.0 and `[3.0.0]` grew with every
+  commit instead of ending at its tag.
 
-## [3.0.0] — unreleased
+## [3.0.0] — 2026-09-21
 
 ### Changed — BREAKING
 
@@ -185,8 +207,8 @@ Initial release: the `Checker` interface, built-in Redis / HTTP / database /
 custom / disabled probes, parallel multi-probe aggregation, net/http and Fiber
 handlers, Kubernetes liveness and readiness probes, and IP whitelisting.
 
-[Unreleased]: https://github.com/soulteary/health-kit/compare/v2.3.0...HEAD
-[3.0.0]: https://github.com/soulteary/health-kit/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/soulteary/health-kit/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/soulteary/health-kit/compare/v2.3.0...v3.0.0
 [2.3.0]: https://github.com/soulteary/health-kit/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/soulteary/health-kit/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/soulteary/health-kit/compare/v2.0.0...v2.1.0

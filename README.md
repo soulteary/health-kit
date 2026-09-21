@@ -7,7 +7,7 @@
 
 [中文文档](README_CN.md)
 
-A unified health check toolkit for Go services. This package provides health check interfaces, probe implementations, multi-probe aggregation, and HTTP handlers compatible with both Fiber and net/http.
+A unified health check toolkit for Go services: health check interfaces, probe implementations, multi-probe aggregation, and net/http handlers. Fiber v3 support lives in the `fiberadapter` subpackage — the root package has not carried Fiber handlers since v3.0.0.
 
 
 > **Breaking in v3.0.0 — new module path, and Fiber support moved to a subpackage.**
