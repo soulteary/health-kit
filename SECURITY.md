@@ -27,8 +27,9 @@ disclosing publicly.
 
 | Version | Supported |
 | ------- | --------- |
-| 3.x     | ✅ |
-| 2.x     | ❌ superseded by 3.x — see the [migration notes](README.md#installation) |
+| 4.x     | ✅ |
+| 3.x     | ❌ superseded by 4.x — see the [migration notes](README.md#installation) |
+| 2.x     | ❌ |
 | 1.x     | ❌ |
 
 Fixes land on the latest minor of the current major. There are no long-term

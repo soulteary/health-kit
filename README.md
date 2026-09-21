@@ -1,6 +1,6 @@
 # health-kit
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v3.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v3)
+[![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/health-kit/v4.svg)](https://pkg.go.dev/github.com/soulteary/health-kit/v4)
 [![Go Report Card](.github/goreportcard.svg)](.github/goreportcard-report.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/soulteary/health-kit/graph/badge.svg)](https://codecov.io/gh/soulteary/health-kit)
@@ -10,37 +10,39 @@
 A unified health check toolkit for Go services: health check interfaces, probe implementations, multi-probe aggregation, and net/http handlers. Fiber v3 support lives in the `fiberadapter` subpackage — the root package has not carried Fiber handlers since v3.0.0.
 
 
-> **Breaking in v3.0.0 — new module path, and Fiber support moved to a subpackage.**
+> **Breaking in v4.0.0 — new module path, and the Redis probe moved to a subpackage.**
 >
-> **Step 1 — everyone, including net/http-only users.** The module path is now
-> `github.com/soulteary/health-kit/v3`:
+> **Step 1 — everyone, including services with no Redis.** The module path is
+> now `github.com/soulteary/health-kit/v4`:
 >
 > ```bash
-> go get github.com/soulteary/health-kit/v3
-> go mod edit -droprequire github.com/soulteary/health-kit/v2
+> go get github.com/soulteary/health-kit/v4
+> go mod edit -droprequire github.com/soulteary/health-kit/v3
 > ```
 >
 > Then update the import path in your source. The major-version bump is
-> required by Go's import compatibility rule, because v3 removes exported
+> required by Go's import compatibility rule, because v4 removes exported
 > symbols; keeping them as shims was not an option, since a shim would import
-> Fiber again and give back the whole benefit below.
+> go-redis again and give back the whole benefit below.
 >
-> **Step 2 — Fiber users only.** The Fiber handlers moved to
-> `github.com/soulteary/health-kit/v3/fiberadapter`, so importing the root
-> package no longer links Fiber (and fasthttp) into binaries that never use
-> it. In a net/http service that means **25 fewer linked packages, 8 fewer
-> modules and a 14% smaller binary**.
+> **Step 2 — Redis users only.** The Redis probe moved to
+> `github.com/soulteary/health-kit/v4/redisprobe`, so importing the root
+> package no longer links go-redis into binaries that never talk to Redis. For
+> a program that imports only the root package that is **21 fewer linked
+> packages, 4 fewer modules and a 17.5% smaller binary**, no `// indirect`
+> requirement in your `go.mod`, and nine modules out of your `go.sum`.
 >
 > | Before | After |
 > |---|---|
-> | `health.FiberHandler(agg)` | `fiberadapter.Handler(agg)` |
-> | `health.FiberLivenessHandler(name)` | `fiberadapter.LivenessHandler(name)` |
-> | `health.FiberReadinessHandler(agg)` | `fiberadapter.ReadinessHandler(agg)` |
-> | `health.SimpleFiberHandler(name)` | `fiberadapter.SimpleHandler(name)` |
+> | `health.NewRedisChecker(c)` | `redisprobe.New(c)` |
+> | `health.NewRedisCheckerWithName(n, c)` | `redisprobe.NewWithName(n, c)` |
+> | `health.RedisChecker` | `redisprobe.Checker` |
 >
-> Apart from the import path, no net/http API changed: `health.Handler`,
-> `LivenessHandler`, `ReadinessHandler` and `SimpleHandler` keep their
-> signatures and their behaviour.
+> The probe now takes any go-redis client that can answer `PING`, so
+> `*redis.ClusterClient`, `*redis.Ring` and `redis.UniversalClient` work where
+> only `*redis.Client` did. Nothing else changed: every other probe, the
+> aggregator, the net/http handlers and `fiberadapter` keep their signatures
+> and their behaviour.
 
 ## Features
 
@@ -61,7 +63,7 @@ A unified health check toolkit for Go services: health check interfaces, probe i
 ## Installation
 
 ```bash
-go get github.com/soulteary/health-kit/v3
+go get github.com/soulteary/health-kit/v4
 ```
 
 The root package depends on nothing outside the standard library. Everything
@@ -70,10 +72,10 @@ only what the service actually uses:
 
 ```bash
 # Fiber v3 handlers — links Fiber, and with it fasthttp
-go get github.com/soulteary/health-kit/v3/fiberadapter
+go get github.com/soulteary/health-kit/v4/fiberadapter
 
 # Redis probe — links go-redis
-go get github.com/soulteary/health-kit/v3/redisprobe
+go get github.com/soulteary/health-kit/v4/redisprobe
 ```
 
 A net/http service backed by Postgres imports neither and pays for neither.
@@ -91,7 +93,7 @@ health-kit v1. The net/http handlers and probe APIs keep the same behavior.
 
 ```go
 import (
-    health "github.com/soulteary/health-kit/v3"
+    health "github.com/soulteary/health-kit/v4"
 )
 
 // Create a configuration
@@ -119,7 +121,7 @@ The Redis probe lives in `redisprobe`, so services that do not use Redis never
 link go-redis:
 
 ```go
-import "github.com/soulteary/health-kit/v3/redisprobe"
+import "github.com/soulteary/health-kit/v4/redisprobe"
 
 // Basic Redis checker
 redisChecker := redisprobe.New(redisClient)
@@ -186,7 +188,7 @@ disabledChecker := health.NewDisabledChecker("optional-redis").
 ```go
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v3"
+    health "github.com/soulteary/health-kit/v4"
 )
 
 // Full health check with all probes
@@ -207,8 +209,8 @@ http.HandleFunc("/health", health.SimpleHandler("myservice"))
 ```go
 import (
     "github.com/gofiber/fiber/v3"
-    health "github.com/soulteary/health-kit/v3"
-    "github.com/soulteary/health-kit/v3/fiberadapter"
+    health "github.com/soulteary/health-kit/v4"
+    "github.com/soulteary/health-kit/v4/fiberadapter"
 )
 
 app := fiber.New()
@@ -439,9 +441,9 @@ package main
 
 import (
     "github.com/gofiber/fiber/v3"
-    health "github.com/soulteary/health-kit/v3"
-    "github.com/soulteary/health-kit/v3/fiberadapter"
-    "github.com/soulteary/health-kit/v3/redisprobe"
+    health "github.com/soulteary/health-kit/v4"
+    "github.com/soulteary/health-kit/v4/fiberadapter"
+    "github.com/soulteary/health-kit/v4/redisprobe"
     "github.com/redis/go-redis/v9"
 )
 
@@ -469,8 +471,8 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v3"
-    "github.com/soulteary/health-kit/v3/redisprobe"
+    health "github.com/soulteary/health-kit/v4"
+    "github.com/soulteary/health-kit/v4/redisprobe"
 )
 
 func main() {
@@ -501,8 +503,8 @@ package main
 
 import (
     "net/http"
-    health "github.com/soulteary/health-kit/v3"
-    "github.com/soulteary/health-kit/v3/redisprobe"
+    health "github.com/soulteary/health-kit/v4"
+    "github.com/soulteary/health-kit/v4/redisprobe"
 )
 
 func main() {
@@ -647,11 +649,41 @@ All three packages are at **100% statement coverage**. Note that
 fiberadapter_test`): they compile only against the exported API, which keeps
 that API honest about being sufficient for an out-of-tree adapter.
 
+## Upgrade Notes (v4.0.0)
+
+**Breaking: the module path is now `github.com/soulteary/health-kit/v4`, and
+the Redis probe moved to the `redisprobe` subpackage.** See the note at the top
+of this file for the two migration steps. Nothing else changed.
+
+- **The root package now depends on nothing outside the standard library.**
+  Fiber lives in `fiberadapter`, Redis in `redisprobe`; a net/http service
+  backed by Postgres links neither.
+- **`redisprobe.New` and `NewWithName` take `redisprobe.Pinger`** — anything
+  that answers `PING` — so `*redis.ClusterClient`, `*redis.Ring` and
+  `redis.UniversalClient` work where only `*redis.Client` did.
+- **A nil client is still reported, not panicked on**, including a typed nil
+  such as an unassigned `*redis.Client` field, which a plain `== nil` against
+  the interface would have missed.
+- **`redisprobe.DefaultTimeout`** names the 2s bound on a single `PING` that
+  `NewRedisChecker` applied anonymously. The value is unchanged.
+- Every other probe, the aggregator, the net/http handlers and `fiberadapter`
+  keep their signatures and their behaviour.
+
 ## Upgrade Notes (v3.0.0)
 
 **Breaking: the module path is now `github.com/soulteary/health-kit/v3`, and
-the Fiber handlers moved to the `fiberadapter` subpackage.** See the note at
-the top of this file for the two migration steps. Everything else is additive.
+the Fiber handlers moved to the `fiberadapter` subpackage.** Two steps: update
+the import path, then, if you serve Fiber routes, switch to the adapter.
+Importing the root package stopped linking Fiber — and with it fasthttp — so a
+net/http service got 25 fewer linked packages, 8 fewer modules and a 14%
+smaller binary. Everything else is additive.
+
+| Before | After |
+|---|---|
+| `health.FiberHandler(agg)` | `fiberadapter.Handler(agg)` |
+| `health.FiberLivenessHandler(name)` | `fiberadapter.LivenessHandler(name)` |
+| `health.FiberReadinessHandler(agg)` | `fiberadapter.ReadinessHandler(agg)` |
+| `health.SimpleFiberHandler(name)` | `fiberadapter.SimpleHandler(name)` |
 
 - **Newly exported for adapter authors**: `Decide`, `Decision`,
   `ClientIPSource`, `RequestSource` and `SimpleResponse` (was the unexported

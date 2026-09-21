@@ -5,9 +5,12 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Because Go encodes the major version in the import path, every major release
-also changes the module path — see [Unreleased](#unreleased) for the current one.
+also changes the module path. The current one is
+`github.com/soulteary/health-kit/v4`.
 
 ## [Unreleased]
+
+## [4.0.0] — 2026-09-21
 
 ### Changed — BREAKING
 
@@ -37,10 +40,10 @@ also changes the module path — see [Unreleased](#unreleased) for the current o
   consumer's `go.mod` and `go.sum` entirely — which is what `fiberadapter`
   already demonstrates for Fiber.
 
-  **Releasing this therefore means moving the module path to
-  `github.com/soulteary/health-kit/v4`**, by the same import compatibility rule
-  that forced `/v3`. The bump is deliberately not in the tree yet: do it in the
-  commit that cuts the release, together with this heading.
+  **The module path is therefore now `github.com/soulteary/health-kit/v4`**,
+  by the same import compatibility rule that forced `/v3`. Every user must
+  update the import path, including services with no Redis at all, which are
+  otherwise unaffected.
 
 - Nothing else changed. The remaining probes, the aggregator, the net/http
   handlers and `fiberadapter` keep their signatures and their behaviour.
@@ -275,7 +278,8 @@ Initial release: the `Checker` interface, built-in Redis / HTTP / database /
 custom / disabled probes, parallel multi-probe aggregation, net/http and Fiber
 handlers, Kubernetes liveness and readiness probes, and IP whitelisting.
 
-[Unreleased]: https://github.com/soulteary/health-kit/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/soulteary/health-kit/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/soulteary/health-kit/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/soulteary/health-kit/compare/v2.3.0...v3.0.0
 [2.3.0]: https://github.com/soulteary/health-kit/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/soulteary/health-kit/compare/v2.1.0...v2.2.0
