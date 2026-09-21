@@ -1,12 +1,11 @@
 package health
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
 	"strings"
-
-	"github.com/gofiber/fiber/v3"
 )
 
 // HTTPStatusCode returns the appropriate HTTP status code for a health status
@@ -23,8 +22,9 @@ func HTTPStatusCode(status Status) int {
 	}
 }
 
-// simpleResponse is used when details are not included
-type simpleResponse struct {
+// SimpleResponse is the body returned when details are not included.
+// Exported for framework adapters -- see the fiberadapter subpackage.
+type SimpleResponse struct {
 	Status  Status `json:"status"`
 	Service string `json:"service"`
 }
@@ -32,38 +32,107 @@ type simpleResponse struct {
 // Handler returns a standard library HTTP handler for health checks
 func Handler(aggregator *Aggregator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		config := aggregator.Config()
-
-		// Check IP whitelist
-		if len(config.IPWhitelist) > 0 {
-			clientIP := getClientIPFromRequest(r, config)
-			if !config.IsIPAllowed(clientIP) {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
-		}
-
-		// Perform health check
-		result := aggregator.Check(r.Context())
-
-		// Build response
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(HTTPStatusCode(result.Status))
-
-		if !config.IncludeDetails {
-			_ = json.NewEncoder(w).Encode(simpleResponse{
-				Status:  result.Status,
-				Service: result.Service,
-			})
+		decision := Decide(r.Context(), aggregator, RequestSource(r))
+		if decision.Forbidden {
+			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 
-		if !config.IncludeChecks {
-			result.Checks = nil
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(decision.StatusCode)
+		_ = json.NewEncoder(w).Encode(decision.Body)
+	}
+}
+
+// ClientIPSource is the minimal view of a request needed to resolve a client
+// IP. Implementing it is all a framework adapter has to do -- see the
+// fiberadapter subpackage.
+type ClientIPSource interface {
+	// RemoteIP is the peer address of the connection, nil when unavailable.
+	RemoteIP() net.IP
+	// Header returns a request header, or "" when absent.
+	Header(name string) string
+}
+
+// ClientIP resolves the client IP under this config's trusted-proxy rules:
+// X-Forwarded-For then X-Real-IP, but only when the peer is a trusted proxy.
+//
+// Exported, and taking an interface, so the rule has exactly one
+// implementation. It used to have two -- one per framework -- and a
+// trusted-proxy rule that disagrees with itself across frameworks is a
+// whitelist bypass waiting to happen, not a cosmetic difference.
+func (c Config) ClientIP(src ClientIPSource) string {
+	remoteIP := src.RemoteIP()
+	if remoteIP == nil {
+		return ""
+	}
+
+	if c.IsTrustedProxy(remoteIP.String()) {
+		if xff := parseForwardedIP(src.Header("X-Forwarded-For")); xff != "" {
+			return xff
 		}
 
-		_ = json.NewEncoder(w).Encode(result)
+		if xri := strings.TrimSpace(src.Header("X-Real-IP")); xri != "" {
+			if ip := parseIPAddress(xri); ip != nil {
+				return ip.String()
+			}
+		}
 	}
+
+	return remoteIP.String()
+}
+
+// RequestSource adapts an *http.Request to ClientIPSource.
+func RequestSource(r *http.Request) ClientIPSource { return stdSource{r: r} }
+
+type stdSource struct{ r *http.Request }
+
+func (s stdSource) RemoteIP() net.IP          { return parseIPAddress(s.r.RemoteAddr) }
+func (s stdSource) Header(name string) string { return s.r.Header.Get(name) }
+
+// Decision is what a health endpoint should return, computed without reference
+// to any web framework.
+type Decision struct {
+	// Forbidden reports that the client IP is not on the whitelist.
+	//
+	// Each adapter renders its own 403 body. They have never agreed -- the
+	// net/http handler sends text/plain "Forbidden" while the Fiber one sends
+	// {"error":"Forbidden"} -- and this change deliberately does not unify
+	// them, so that moving Fiber out stays a move.
+	Forbidden bool
+
+	// StatusCode is the HTTP status for a non-forbidden response.
+	StatusCode int
+
+	// Body is the value to serialize as JSON.
+	Body any
+}
+
+// Decide applies the IP whitelist, runs the checks and reduces the outcome to
+// what should be sent. clientIP is ignored when no whitelist is configured.
+func Decide(ctx context.Context, aggregator *Aggregator, src ClientIPSource) Decision {
+	config := aggregator.Config()
+
+	if len(config.IPWhitelist) > 0 {
+		if !config.IsIPAllowed(config.ClientIP(src)) {
+			return Decision{Forbidden: true}
+		}
+	}
+
+	result := aggregator.Check(ctx)
+
+	if !config.IncludeDetails {
+		return Decision{
+			StatusCode: HTTPStatusCode(result.Status),
+			Body:       SimpleResponse{Status: result.Status, Service: result.Service},
+		}
+	}
+
+	if !config.IncludeChecks {
+		result.Checks = nil
+	}
+
+	return Decision{StatusCode: HTTPStatusCode(result.Status), Body: result}
 }
 
 // LivenessHandler returns a simple liveness check handler (for Kubernetes)
@@ -72,7 +141,7 @@ func LivenessHandler(serviceName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(simpleResponse{
+		_ = json.NewEncoder(w).Encode(SimpleResponse{
 			Status:  StatusHealthy,
 			Service: serviceName,
 		})
@@ -83,97 +152,6 @@ func LivenessHandler(serviceName string) http.HandlerFunc {
 // Returns 200 OK only if all critical checks pass
 func ReadinessHandler(aggregator *Aggregator) http.HandlerFunc {
 	return Handler(aggregator)
-}
-
-// FiberHandler returns a Fiber handler for health checks
-func FiberHandler(aggregator *Aggregator) fiber.Handler {
-	return func(c fiber.Ctx) error {
-		config := aggregator.Config()
-
-		// Check IP whitelist
-		if len(config.IPWhitelist) > 0 {
-			clientIP := getClientIPFromFiber(c, config)
-			if !config.IsIPAllowed(clientIP) {
-				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-					"error": "Forbidden",
-				})
-			}
-		}
-
-		// Perform health check
-		result := aggregator.Check(c)
-
-		if !config.IncludeDetails {
-			return c.Status(HTTPStatusCode(result.Status)).JSON(simpleResponse{
-				Status:  result.Status,
-				Service: result.Service,
-			})
-		}
-
-		if !config.IncludeChecks {
-			result.Checks = nil
-		}
-
-		return c.Status(HTTPStatusCode(result.Status)).JSON(result)
-	}
-}
-
-// FiberLivenessHandler returns a simple Fiber liveness check handler
-func FiberLivenessHandler(serviceName string) fiber.Handler {
-	return func(c fiber.Ctx) error {
-		return c.Status(fiber.StatusOK).JSON(simpleResponse{
-			Status:  StatusHealthy,
-			Service: serviceName,
-		})
-	}
-}
-
-// FiberReadinessHandler returns a Fiber readiness check handler
-func FiberReadinessHandler(aggregator *Aggregator) fiber.Handler {
-	return FiberHandler(aggregator)
-}
-
-// getClientIPFromRequest extracts the client IP from an HTTP request
-func getClientIPFromRequest(r *http.Request, config Config) string {
-	remoteIP := parseIPAddress(r.RemoteAddr)
-	if remoteIP == nil {
-		return ""
-	}
-
-	if config.IsTrustedProxy(remoteIP.String()) {
-		if xff := parseForwardedIP(r.Header.Get("X-Forwarded-For")); xff != "" {
-			return xff
-		}
-
-		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
-			if ip := parseIPAddress(xri); ip != nil {
-				return ip.String()
-			}
-		}
-	}
-
-	return remoteIP.String()
-}
-
-func getClientIPFromFiber(c fiber.Ctx, config Config) string {
-	remoteIP := c.RequestCtx().RemoteIP()
-	if remoteIP == nil {
-		return ""
-	}
-
-	if config.IsTrustedProxy(remoteIP.String()) {
-		if xff := parseForwardedIP(c.Get("X-Forwarded-For")); xff != "" {
-			return xff
-		}
-
-		if xri := strings.TrimSpace(c.Get("X-Real-IP")); xri != "" {
-			if ip := parseIPAddress(xri); ip != nil {
-				return ip.String()
-			}
-		}
-	}
-
-	return remoteIP.String()
 }
 
 func parseForwardedIP(headerValue string) string {
@@ -215,17 +193,7 @@ func SimpleHandler(serviceName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(simpleResponse{
-			Status:  StatusHealthy,
-			Service: serviceName,
-		})
-	}
-}
-
-// SimpleFiberHandler returns a minimal Fiber health check handler
-func SimpleFiberHandler(serviceName string) fiber.Handler {
-	return func(c fiber.Ctx) error {
-		return c.Status(fiber.StatusOK).JSON(simpleResponse{
+		_ = json.NewEncoder(w).Encode(SimpleResponse{
 			Status:  StatusHealthy,
 			Service: serviceName,
 		})

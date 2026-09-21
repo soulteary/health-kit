@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,7 +75,7 @@ func TestHandler(t *testing.T) {
 
 		handler(rec, req)
 
-		var result simpleResponse
+		var result SimpleResponse
 		err := json.NewDecoder(rec.Body).Decode(&result)
 		require.NoError(t, err)
 		assert.Equal(t, StatusHealthy, result.Status)
@@ -189,7 +188,7 @@ func TestHandler(t *testing.T) {
 
 		handler := Handler(aggregator)
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		// RemoteAddr 未设置时为空，getClientIPFromRequest 返回 ""
+		// RemoteAddr 未设置时为空，Config.ClientIP 返回 ""
 		rec := httptest.NewRecorder()
 
 		handler(rec, req)
@@ -207,7 +206,7 @@ func TestLivenessHandler(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var result simpleResponse
+	var result SimpleResponse
 	err := json.NewDecoder(rec.Body).Decode(&result)
 	require.NoError(t, err)
 	assert.Equal(t, StatusHealthy, result.Status)
@@ -236,172 +235,8 @@ func TestSimpleHandler(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var result simpleResponse
+	var result SimpleResponse
 	err := json.NewDecoder(rec.Body).Decode(&result)
-	require.NoError(t, err)
-	assert.Equal(t, StatusHealthy, result.Status)
-	assert.Equal(t, "simple-service", result.Service)
-}
-
-func TestFiberHandler(t *testing.T) {
-	t.Run("healthy response", func(t *testing.T) {
-		app := fiber.New()
-		aggregator := NewAggregator(DefaultConfig().WithServiceName("test"))
-		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
-
-		app.Get("/health", FiberHandler(aggregator))
-
-		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result AggregatedResult
-		err = json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-		assert.Equal(t, StatusHealthy, result.Status)
-	})
-
-	t.Run("unhealthy response", func(t *testing.T) {
-		app := fiber.New()
-		aggregator := NewAggregator(DefaultConfig().WithServiceName("test"))
-		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusUnhealthy})
-
-		app.Get("/health", FiberHandler(aggregator))
-
-		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-
-		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	})
-
-	t.Run("without details", func(t *testing.T) {
-		app := fiber.New()
-		config := DefaultConfig().WithServiceName("test").WithDetails(false)
-		aggregator := NewAggregator(config)
-		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
-
-		app.Get("/health", FiberHandler(aggregator))
-
-		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-
-		var result simpleResponse
-		err = json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-		assert.Equal(t, StatusHealthy, result.Status)
-	})
-
-	t.Run("without checks", func(t *testing.T) {
-		app := fiber.New()
-		config := DefaultConfig().WithServiceName("test").WithChecks(false)
-		aggregator := NewAggregator(config)
-		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
-
-		app.Get("/health", FiberHandler(aggregator))
-
-		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		body, _ := io.ReadAll(resp.Body)
-		assert.NotContains(t, string(body), `"checks"`)
-	})
-
-	t.Run("IP whitelist denied", func(t *testing.T) {
-		app := fiber.New()
-		config := DefaultConfig().WithServiceName("test").WithIPWhitelist([]string{"192.168.1.1"})
-		aggregator := NewAggregator(config)
-
-		app.Get("/health", FiberHandler(aggregator))
-
-		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-	})
-
-	t.Run("trusted proxy X-Forwarded-For invalid first IP falls back", func(t *testing.T) {
-		app := fiber.New()
-		config := DefaultConfig().
-			WithServiceName("test").
-			WithIPWhitelist([]string{"192.168.1.1"}).
-			WithTrustedProxies([]string{"10.0.0.0/8"})
-		aggregator := NewAggregator(config)
-		aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
-
-		app.Get("/health", FiberHandler(aggregator))
-
-		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		req.RemoteAddr = "10.0.0.1:12345"
-		req.Header.Set("X-Forwarded-For", "invalid-ip, 192.168.1.1")
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-
-		// parseForwardedIP 第一个 IP 无效返回 ""，随后可能用 X-Real-IP 或 remoteIP
-		// 此处无 X-Real-IP，会回退到 10.0.0.1，不在白名单，403
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-	})
-}
-
-func TestFiberLivenessHandler(t *testing.T) {
-	app := fiber.New()
-	app.Get("/livez", FiberLivenessHandler("test-service"))
-
-	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var result simpleResponse
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	require.NoError(t, err)
-	assert.Equal(t, StatusHealthy, result.Status)
-	assert.Equal(t, "test-service", result.Service)
-}
-
-func TestFiberReadinessHandler(t *testing.T) {
-	app := fiber.New()
-	aggregator := NewAggregator(DefaultConfig().WithServiceName("test"))
-	aggregator.AddChecker(&mockChecker{name: "redis", status: StatusHealthy})
-
-	app.Get("/readyz", FiberReadinessHandler(aggregator))
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-}
-
-func TestSimpleFiberHandler(t *testing.T) {
-	app := fiber.New()
-	app.Get("/health", SimpleFiberHandler("simple-service"))
-
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var result simpleResponse
-	err = json.NewDecoder(resp.Body).Decode(&result)
 	require.NoError(t, err)
 	assert.Equal(t, StatusHealthy, result.Status)
 	assert.Equal(t, "simple-service", result.Service)
@@ -486,7 +321,7 @@ func TestGetClientIPFromRequest(t *testing.T) {
 			}
 
 			config := DefaultConfig().WithTrustedProxies(tt.trusted)
-			result := getClientIPFromRequest(req, config)
+			result := config.ClientIP(RequestSource(req))
 			assert.Equal(t, tt.expected, result)
 		})
 	}

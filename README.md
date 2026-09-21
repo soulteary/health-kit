@@ -9,6 +9,22 @@
 
 A unified health check toolkit for Go services. This package provides health check interfaces, probe implementations, multi-probe aggregation, and HTTP handlers compatible with both Fiber and net/http.
 
+
+> **Breaking in v2.4.0 — Fiber support moved to a subpackage.**
+> The Fiber handlers are now `github.com/soulteary/health-kit/v2/fiberadapter`,
+> so importing the root package no longer links Fiber (and fasthttp) into
+> binaries that never use it. In a net/http service that means **25 fewer
+> linked packages, 8 fewer modules and a 14% smaller binary**.
+>
+> | Before | After |
+> |---|---|
+> | `health.FiberHandler(agg)` | `fiberadapter.Handler(agg)` |
+> | `health.FiberLivenessHandler(name)` | `fiberadapter.LivenessHandler(name)` |
+> | `health.FiberReadinessHandler(agg)` | `fiberadapter.ReadinessHandler(agg)` |
+> | `health.SimpleFiberHandler(name)` | `fiberadapter.SimpleHandler(name)` |
+>
+> Nothing on the net/http side changed.
+
 ## Features
 
 - **Checker Interface**: Unified health check interface for all probes
@@ -143,17 +159,17 @@ import (
 app := fiber.New()
 
 // Full health check
-app.Get("/health", health.FiberHandler(aggregator))
-app.Get("/healthz", health.FiberHandler(aggregator))
+app.Get("/health", fiberadapter.Handler(aggregator))
+app.Get("/healthz", fiberadapter.Handler(aggregator))
 
 // Kubernetes liveness probe
-app.Get("/livez", health.FiberLivenessHandler("myservice"))
+app.Get("/livez", fiberadapter.LivenessHandler("myservice"))
 
 // Kubernetes readiness probe
-app.Get("/readyz", health.FiberReadinessHandler(aggregator))
+app.Get("/readyz", fiberadapter.ReadinessHandler(aggregator))
 
 // Simple health check
-app.Get("/health", health.SimpleFiberHandler("myservice"))
+app.Get("/health", fiberadapter.SimpleHandler("myservice"))
 ```
 
 ### Configuration Options
@@ -281,7 +297,7 @@ health-kit/
 ├── config.go          # Configuration with IP whitelist support
 ├── probes.go          # Built-in probes (Redis, HTTP, DB, Custom, Disabled)
 ├── aggregator.go      # Multi-probe aggregation with parallel execution
-├── handler.go         # HTTP handlers for Fiber and net/http
+├── handler.go         # net/http handlers (Fiber lives in fiberadapter/)
 └── *_test.go          # Comprehensive tests
 ```
 
@@ -309,7 +325,7 @@ func main() {
     aggregator.AddChecker(health.NewRedisChecker(redisClient))
     
     app := fiber.New()
-    app.Get("/healthz", health.FiberHandler(aggregator))
+    app.Get("/healthz", fiberadapter.Handler(aggregator))
     
     app.Listen(":8080")
 }

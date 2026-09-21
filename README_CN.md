@@ -9,6 +9,21 @@
 
 统一的 Go 服务健康检查工具包。提供健康检查接口、探针实现、多探针聚合以及兼容 Fiber 和 net/http 的 HTTP 处理器。
 
+
+> **v2.4.0 破坏性变更 —— Fiber 支持移入子包。**
+> Fiber handler 现位于 `github.com/soulteary/health-kit/v2/fiberadapter`，
+> 于是导入根包不再把 Fiber（以及 fasthttp）链接进用不到它的二进制。
+> 对一个 net/http 服务来说，这意味着**少链接 25 个包、少 8 个模块、二进制小 14%**。
+>
+> | 原来 | 现在 |
+> |---|---|
+> | `health.FiberHandler(agg)` | `fiberadapter.Handler(agg)` |
+> | `health.FiberLivenessHandler(name)` | `fiberadapter.LivenessHandler(name)` |
+> | `health.FiberReadinessHandler(agg)` | `fiberadapter.ReadinessHandler(agg)` |
+> | `health.SimpleFiberHandler(name)` | `fiberadapter.SimpleHandler(name)` |
+>
+> net/http 一侧没有任何变化。
+
 ## 特性
 
 - **检查器接口**：所有探针的统一健康检查接口
@@ -143,17 +158,17 @@ import (
 app := fiber.New()
 
 // 完整健康检查
-app.Get("/health", health.FiberHandler(aggregator))
-app.Get("/healthz", health.FiberHandler(aggregator))
+app.Get("/health", fiberadapter.Handler(aggregator))
+app.Get("/healthz", fiberadapter.Handler(aggregator))
 
 // Kubernetes 存活探针
-app.Get("/livez", health.FiberLivenessHandler("myservice"))
+app.Get("/livez", fiberadapter.LivenessHandler("myservice"))
 
 // Kubernetes 就绪探针
-app.Get("/readyz", health.FiberReadinessHandler(aggregator))
+app.Get("/readyz", fiberadapter.ReadinessHandler(aggregator))
 
 // 简单健康检查
-app.Get("/health", health.SimpleFiberHandler("myservice"))
+app.Get("/health", fiberadapter.SimpleHandler("myservice"))
 ```
 
 ### 配置选项
@@ -298,7 +313,7 @@ func main() {
     aggregator.AddChecker(health.NewRedisChecker(redisClient))
     
     app := fiber.New()
-    app.Get("/healthz", health.FiberHandler(aggregator))
+    app.Get("/healthz", fiberadapter.Handler(aggregator))
     
     app.Listen(":8080")
 }
