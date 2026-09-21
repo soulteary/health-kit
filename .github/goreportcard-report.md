@@ -1,29 +1,24 @@
 # Go Report Card
 
-**Grade: A+** (99.1%)
+**Grade: A+** (100.0%)
 
 | Metric | Value |
 | ------ | ----- |
-| Files | 13 |
-| Issues | 1 |
+| Files | 15 |
+| Issues | 0 |
 
 ## Checks
 
 | Check | Score |
 | ----- | ----- |
-| gofmt | 100% |
 | go_vet | 100% |
-| gocyclo | 92% |
+| gofmt | 100% |
+| gocyclo | 100% |
 | ineffassign | 100% |
 | license | 100% |
 | misspell | 100% |
 
-## Issues
-
-### gocyclo
-
-- `aggregator.go`
-  - Line 65: cyclomatic complexity 17 for function (*Aggregator).Check
+No issues found. Nice work!
 
 ---
 
