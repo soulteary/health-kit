@@ -44,7 +44,9 @@
 - **检查器接口**：所有探针的统一健康检查接口
 - **内置探针**：Redis、HTTP、数据库和自定义探针
 - **并行聚合**：并行运行多个健康检查并聚合结果
-- **HTTP 处理器**：标准库和 Fiber 兼容的 `/health` 端点处理器
+- **HTTP 处理器**：标准库处理器，以及位于独立子包中的 Fiber 适配器
+- **框架无关内核**：`Decide` 与 `ClientIPSource` 均已导出，为 Echo、Gin、chi
+  写适配器约二十行，且共用同一份可信代理规则
 - **Kubernetes 支持**：专用的存活和就绪探针处理器
 - **IP 白名单**：限制特定 IP/CIDR 访问健康检查端点
 - **关键检查**：区分关键和非关键依赖
@@ -56,7 +58,13 @@
 go get github.com/soulteary/health-kit/v3
 ```
 
-v2 的所有 Fiber 专用 Handler 均基于 Fiber v3。仍使用 Fiber v2 的应用应继续使用 health-kit v1；net/http Handler 与探针 API 的行为保持不变。
+根包不依赖任何 Web 框架。Fiber 支持位于子包中，只有导入它才会链接 Fiber（以及 fasthttp）：
+
+```bash
+go get github.com/soulteary/health-kit/v3/fiberadapter
+```
+
+Fiber Handler 基于 Fiber v3。仍使用 Fiber v2 的应用应继续使用 health-kit v1；net/http Handler 与探针 API 的行为保持不变。
 
 ## 使用
 
@@ -186,6 +194,74 @@ app.Get("/readyz", fiberadapter.ReadinessHandler(aggregator))
 // 简单健康检查
 app.Get("/health", fiberadapter.SimpleHandler("myservice"))
 ```
+
+### 为其他框架编写适配器（Echo、Gin、chi……）
+
+本仓库没有 Echo 或 Gin 适配器，你也不需要等：整个端点判定逻辑与框架无关，
+并且已经导出。写一个适配器大约二十行。
+
+核心是两样东西。`health.Decide` 负责应用 IP 白名单、执行检查，并把结果归约
+成一个状态码和一个响应体：
+
+```go
+type Decision struct {
+    Forbidden  bool // 客户端 IP 不在白名单内
+    StatusCode int  // 恒有值，被拒绝时也是
+    Body       any  // 按 JSON 序列化
+}
+
+func Decide(ctx context.Context, aggregator *Aggregator, src ClientIPSource) Decision
+```
+
+`health.ClientIPSource` 是你唯一需要实现的东西 —— 解析客户端 IP 所需的最小
+请求视图：
+
+```go
+type ClientIPSource interface {
+    RemoteIP() net.IP            // 对端地址，取不到时为 nil
+    Header(name string) string   // 请求头，缺失时为 ""
+}
+```
+
+可信代理规则本身 —— 什么时候可以相信 `X-Forwarded-For` 和 `X-Real-IP`、以及
+两者的优先级 —— 位于 `Config.ClientIP`，由所有适配器共用。这是有意为之：
+一条在不同框架间各说各话的规则就是一次 IP 白名单绕过，而不是无关紧要的差异。
+**不要重新实现它。**
+
+一个完整的 Echo 适配器：
+
+```go
+type echoSource struct{ c echo.Context }
+
+func (s echoSource) RemoteIP() net.IP {
+    host, _, err := net.SplitHostPort(s.c.Request().RemoteAddr)
+    if err != nil {
+        return net.ParseIP(s.c.Request().RemoteAddr)
+    }
+    return net.ParseIP(host)
+}
+
+func (s echoSource) Header(name string) string { return s.c.Request().Header.Get(name) }
+
+func Handler(aggregator *health.Aggregator) echo.HandlerFunc {
+    return func(c echo.Context) error {
+        d := health.Decide(c.Request().Context(), aggregator, echoSource{c: c})
+        if d.Forbidden {
+            return c.JSON(http.StatusForbidden, map[string]string{"error": "Forbidden"})
+        }
+        return c.JSON(d.StatusCode, d.Body)
+    }
+}
+```
+
+注意 `Decide` **不**负责渲染 403 响应体,这由各适配器自己决定。内置的两个适配器
+在这一点上历史遗留地不一致(`health.Handler` 返回 `text/plain`,
+`fiberadapter.Handler` 返回 JSON),强行统一会让某一边的行为悄悄改变。
+按你自己 API 的风格选一种即可。
+
+如果你要写适配器,最值得从 `fiberadapter` 抄的一个测试是跨框架 parity 表:
+把同一组请求头分别喂给你的 `ClientIPSource` 和 `health.RequestSource`,
+断言两者解析出相同的客户端 IP。
 
 ### 配置选项
 
@@ -483,8 +559,11 @@ func main() {
 ## 要求
 
 - **Go 1.27+**（`go.mod` 声明 `go 1.27.0`）
-- github.com/gofiber/fiber/v3 v3.4.0+（用于 Fiber 处理器）
-- github.com/redis/go-redis/v9 v9.7.3+（用于 Redis 探针）
+- github.com/gofiber/fiber/v3 v3.5.0+ —— **仅当**你导入 `fiberadapter` 时需要，
+  根包不会引入它
+- github.com/redis/go-redis/v9 v9.22.0+（用于 Redis 探针）
+- modernc.org/sqlite v1.59.0+ 与 github.com/alicebob/miniredis/v2 v2.39.0+ 为
+  仅测试依赖
 
 ## 测试覆盖率
 
@@ -493,11 +572,45 @@ func main() {
 ```bash
 go test ./... -v
 
-# 带覆盖率
-go test ./... -coverprofile=coverage.out -covermode=atomic
+# 带覆盖率 —— CI 实际执行的命令
+go test -race -coverprofile=coverage.out -covermode=atomic ./...
 go tool cover -html=coverage.out -o coverage.html
 go tool cover -func=coverage.out
 ```
+
+两个包均为 **100% 语句覆盖**。注意 `fiberadapter` 的测试是*外部*测试包
+（`package fiberadapter_test`）：它只针对导出 API 编译，以此保证这套 API
+确实够外部适配器使用。
+
+## 升级说明（v3.0.0）
+
+**破坏性变更：模块路径现为 `github.com/soulteary/health-kit/v3`，且 Fiber
+Handler 移入 `fiberadapter` 子包。** 两步迁移方式见本文件顶部的说明。其余改动
+均为增量。
+
+- **为适配器作者新导出**：`Decide`、`Decision`、`ClientIPSource`、
+  `RequestSource` 以及 `SimpleResponse`（原为未导出的 `simpleResponse`）。
+  详见上文*为其他框架编写适配器*。
+- **可信代理规则只剩一份实现。** `getClientIPFromRequest` 与
+  `getClientIPFromFiber` 原本是同一条规则的两份拷贝，差别只在于对端地址和
+  请求头从哪里取。现已合并为 `Config.ClientIP`，藏在一个两方法接口之后。
+  行为没有变化，但一条能自相矛盾的规则就是一次白名单绕过，所以值得知道
+  现在只有一份了。
+- **`Decision.StatusCode` 在 `Forbidden` 为 true 时也有值。** 只有你自己写
+  适配器、并且无条件写入状态码时才会受影响。
+- **两个 403 响应体依然没有统一** —— `health.Handler` 返回 `text/plain`，
+  `fiberadapter.Handler` 返回 JSON，一直如此。现在两者都有测试钉住，
+  不会再悄悄漂移。
+
+同一版本内的依赖升级：
+
+- `modernc.org/sqlite` v1.59.0（此前 v1.58.0）、`modernc.org/libc` v1.77.0、
+  `github.com/dustin/go-humanize` v1.1.0、`github.com/gofiber/schema` v1.8.7、
+  `github.com/gofiber/utils/v2` v2.5.2、`github.com/molecule-man/go-brrr`
+  v1.1.1、`go.uber.org/atomic` v1.12.0。
+- CI actions：`actions/checkout`、`actions/setup-go`、
+  `actions/upload-artifact` 升至 v7，`codecov/codecov-action` 升至 v7，
+  `soulteary/goreportcard-action` 升至 v1.1.2。
 
 ## 升级说明（v2.3.0）
 
