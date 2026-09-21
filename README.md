@@ -154,6 +154,7 @@ http.HandleFunc("/health", health.SimpleHandler("myservice"))
 import (
     "github.com/gofiber/fiber/v3"
     health "github.com/soulteary/health-kit/v2"
+    "github.com/soulteary/health-kit/v2/fiberadapter"
 )
 
 app := fiber.New()
@@ -297,7 +298,8 @@ health-kit/
 ├── config.go          # Configuration with IP whitelist support
 ├── probes.go          # Built-in probes (Redis, HTTP, DB, Custom, Disabled)
 ├── aggregator.go      # Multi-probe aggregation with parallel execution
-├── handler.go         # net/http handlers (Fiber lives in fiberadapter/)
+├── handler.go         # net/http handlers + the framework-agnostic Decide core
+├── fiberadapter/      # Fiber v3 adapter (only importers of this link Fiber)
 └── *_test.go          # Comprehensive tests
 ```
 
@@ -311,6 +313,7 @@ package main
 import (
     "github.com/gofiber/fiber/v3"
     health "github.com/soulteary/health-kit/v2"
+    "github.com/soulteary/health-kit/v2/fiberadapter"
     "github.com/redis/go-redis/v9"
 )
 

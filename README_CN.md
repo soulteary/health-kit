@@ -153,6 +153,7 @@ http.HandleFunc("/health", health.SimpleHandler("myservice"))
 import (
     "github.com/gofiber/fiber/v3"
     health "github.com/soulteary/health-kit/v2"
+    "github.com/soulteary/health-kit/v2/fiberadapter"
 )
 
 app := fiber.New()
@@ -285,7 +286,8 @@ health-kit/
 ├── config.go          # 配置，支持 IP 白名单
 ├── probes.go          # 内置探针（Redis、HTTP、DB、自定义、禁用）
 ├── aggregator.go      # 多探针聚合，支持并行执行
-├── handler.go         # Fiber 和 net/http 的 HTTP 处理器
+├── handler.go         # net/http 处理器 + 框架无关的 Decide 核心
+├── fiberadapter/      # Fiber v3 适配器（只有导入它的二进制才会链接 Fiber）
 └── *_test.go          # 完整测试
 ```
 
@@ -299,6 +301,7 @@ package main
 import (
     "github.com/gofiber/fiber/v3"
     health "github.com/soulteary/health-kit/v2"
+    "github.com/soulteary/health-kit/v2/fiberadapter"
     "github.com/redis/go-redis/v9"
 )
 
