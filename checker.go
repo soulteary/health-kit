@@ -1,6 +1,3 @@
-// Package health provides a unified health check toolkit for Go services.
-// It includes health check interfaces, probe implementations, multi-probe aggregation,
-// and HTTP handlers compatible with both Fiber and net/http.
 package health
 
 import (
