@@ -7,7 +7,7 @@
 
 [English](README.md)
 
-统一的 Go 服务健康检查工具包。提供健康检查接口、探针实现、多探针聚合以及兼容 Fiber 和 net/http 的 HTTP 处理器。
+统一的 Go 服务健康检查工具包：健康检查接口、探针实现、多探针聚合，以及 net/http 处理器。Fiber v3 支持位于 `fiberadapter` 子包 —— 自 v3.0.0 起根包就不再提供 Fiber 处理器。
 
 
 > **v3.0.0 破坏性变更 —— 模块路径变更，且 Fiber 支持移入子包。**
