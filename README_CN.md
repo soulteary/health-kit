@@ -7,7 +7,7 @@
 
 [English](README.md)
 
-统一的 Go 服务健康检查工具包。提供健康检查接口、探针实现、多探针聚合以及兼容 Fiber 和 net/http 的 HTTP 处理器。
+统一的 Go 服务健康检查工具包：健康检查接口、探针实现、多探针聚合，以及 net/http 处理器。Fiber v3 支持位于 `fiberadapter` 子包 —— 自 v3.0.0 起根包就不再提供 Fiber 处理器。
 
 
 > **v3.0.0 破坏性变更 —— 模块路径变更，且 Fiber 支持移入子包。**
@@ -546,6 +546,9 @@ func main() {
 
 ### 降级响应
 
+此处为节选：顶层的 `timestamp`、`total_latency_ms` 以及每个探针的 `timestamp`
+始终存在。
+
 ```json
 {
   "status": "degraded",
@@ -568,12 +571,20 @@ func main() {
 
 ## HTTP 状态码
 
-| 健康状态 | HTTP 状态码 |
-|---------|------------|
-| ok | 200 OK |
-| degraded | 200 OK |
-| unhealthy | 503 Service Unavailable |
-| disabled | 不适用（聚合时跳过） |
+`HTTPStatusCode` 把状态映射为状态码：
+
+| 健康状态 | `HTTPStatusCode` | 端点会报告吗？ |
+|---------|------------------|----------------|
+| `ok` | 200 OK | 会 |
+| `degraded` | 200 OK | 会 |
+| `unhealthy` | 503 Service Unavailable | 会 |
+| `disabled` | 503 Service Unavailable | 不会 |
+| `unknown` | 503 Service Unavailable | 不会 |
+
+`disabled` 和 `unknown` 是**单个探针**的状态。`Aggregator` 只会归约出前三种，
+所以端点不会因为它们返回 503：被禁用的探针仍然出现在 `checks` 里，只是在归约
+整体状态时被跳过。后两行只在你自己拿单个探针的状态去调 `HTTPStatusCode` 时才
+有意义 —— 前三种之外的一切都映射为 503。
 
 ## 要求
 

@@ -7,7 +7,7 @@
 
 [中文文档](README_CN.md)
 
-A unified health check toolkit for Go services. This package provides health check interfaces, probe implementations, multi-probe aggregation, and HTTP handlers compatible with both Fiber and net/http.
+A unified health check toolkit for Go services: health check interfaces, probe implementations, multi-probe aggregation, and net/http handlers. Fiber v3 support lives in the `fiberadapter` subpackage — the root package has not carried Fiber handlers since v3.0.0.
 
 
 > **Breaking in v3.0.0 — new module path, and Fiber support moved to a subpackage.**
@@ -578,6 +578,9 @@ func main() {
 
 ### Degraded Response
 
+Abbreviated: the top-level `timestamp` and `total_latency_ms`, and each check's
+`timestamp`, are always present.
+
 ```json
 {
   "status": "degraded",
@@ -600,12 +603,21 @@ func main() {
 
 ## HTTP Status Codes
 
-| Health Status | HTTP Status Code |
-|---------------|------------------|
-| ok            | 200 OK           |
-| degraded      | 200 OK           |
-| unhealthy     | 503 Service Unavailable |
-| disabled      | N/A (skipped in aggregation) |
+`HTTPStatusCode` maps a status to a code:
+
+| Health status | `HTTPStatusCode` | Can an endpoint report it? |
+|---------------|------------------|----------------------------|
+| `ok`          | 200 OK           | yes |
+| `degraded`    | 200 OK           | yes |
+| `unhealthy`   | 503 Service Unavailable | yes |
+| `disabled`    | 503 Service Unavailable | no |
+| `unknown`     | 503 Service Unavailable | no |
+
+`disabled` and `unknown` are per-check statuses. `Aggregator` reduces to one of
+the first three, so no endpoint answers 503 on their account: a disabled check
+still appears under `checks`, it is just skipped when reducing to the overall
+status. The last two rows matter only if you call `HTTPStatusCode` yourself
+with a single check's status — anything outside the first three maps to 503.
 
 ## Requirements
 
