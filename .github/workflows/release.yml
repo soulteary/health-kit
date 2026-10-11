@@ -122,9 +122,9 @@ jobs:
 
       # Built here rather than taken from golangci-lint-action, which downloads
       # a release binary. Those are compiled with Go 1.26 and refuse a module
-      # targeting a newer language version -- go.mod declares go 1.27.0 -- so
+      # targeting a newer language version -- go.mod declares go 1.27.2 -- so
       # the action exits with "the Go language version (go1.26) used to build
-      # golangci-lint is lower than the targeted Go version (1.27.0)" before
+      # golangci-lint is lower than the targeted Go version (1.27.2)" before
       # reading any code. Compiling it with the toolchain setup-go just
       # installed produces the same linter built against the language version
       # this module actually uses. Restore the action once its releases are
