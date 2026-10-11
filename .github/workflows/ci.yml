@@ -97,7 +97,7 @@ jobs:
 
       # Built here rather than taken from golangci-lint-action, which downloads
       # a release binary. Those are compiled with Go 1.26 and refuse a module
-      # targeting a newer language version -- go.mod declares go 1.27.0 -- so
+      # targeting a newer language version -- go.mod declares go 1.27.2 -- so
       # the action exits before reading any code. Restore the action once its
       # releases are built with 1.27.
       - name: Run golangci-lint

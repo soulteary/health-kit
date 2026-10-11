@@ -623,7 +623,7 @@ with a single check's status — anything outside the first three maps to 503.
 
 ## Requirements
 
-- **Go 1.27+** (`go.mod` declares `go 1.27.0`)
+- **Go 1.27+** (`go.mod` declares `go 1.27.2`)
 - github.com/gofiber/fiber/v3 v3.5.0+ — **only** if you import `fiberadapter`;
   the root package does not pull it in
 - github.com/redis/go-redis/v9 v9.22.0+ — **only** if you import `redisprobe`;
