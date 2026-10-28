@@ -10,6 +10,21 @@ also changes the module path. The current one is
 
 ## [Unreleased]
 
+## [4.0.4] — 2026-10-28
+
+### Changed
+
+- Refresh the Fiber adapter dependency graph: `gofiber/schema` 1.8.8 → 1.9.1,
+  `gofiber/utils/v2` 2.6.2 → 2.6.3, `go-brrr` 1.3.0 → 1.3.1,
+  `fwd` 1.2.0 → 1.2.1, `fasthttp` 1.75.0 → 1.77.0, and
+  `golang.org/x/net` 0.61.0 → 0.62.0.
+- Update test-only SQLite from 1.60.1 to 1.61.0, with its matching
+  `modernc.org/libc` 1.79.0. SQLite is imported only by database probe tests;
+  this does not change the database driver chosen by consumers.
+- Update the report action wrappers and their installed CLIs to GTR 1.1.3
+  and Go Report Card 1.1.4 across CI, report generation and tag verification.
+- Keep Go 1.27.3, the `/v4` module path and the public API unchanged.
+
 ## [4.0.3] — 2026-10-23
 
 ### Changed
@@ -287,7 +302,8 @@ Initial release: the `Checker` interface, built-in Redis / HTTP / database /
 custom / disabled probes, parallel multi-probe aggregation, net/http and Fiber
 handlers, Kubernetes liveness and readiness probes, and IP whitelisting.
 
-[Unreleased]: https://github.com/soulteary/health-kit/compare/v4.0.3...HEAD
+[Unreleased]: https://github.com/soulteary/health-kit/compare/v4.0.4...HEAD
+[4.0.4]: https://github.com/soulteary/health-kit/compare/v4.0.3...v4.0.4
 [4.0.3]: https://github.com/soulteary/health-kit/compare/v4.0.2...v4.0.3
 [4.0.0]: https://github.com/soulteary/health-kit/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/soulteary/health-kit/compare/v2.3.0...v3.0.0
