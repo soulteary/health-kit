@@ -8,6 +8,15 @@ Because Go encodes the major version in the import path, every major release
 also changes the module path. The current one is
 `github.com/soulteary/health-kit/v4`.
 
+## [4.0.5] - 2026-11-01
+
+### Changed
+
+- Update the Fiber adapter runtime dependency gofiber/schema from v1.9.1 to v1.9.2.
+- Update test-only SQLite from v1.61.0 to v1.61.1, modernc.org/libc to v1.79.1 and YAML to v3.0.6.
+- Retain Go 1.27.3, the public API and consumer-selected database drivers.
+
+
 ## [Unreleased]
 
 ## [4.0.4] — 2026-10-28
