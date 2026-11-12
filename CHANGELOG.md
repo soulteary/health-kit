@@ -8,6 +8,15 @@ Because Go encodes the major version in the import path, every major release
 also changes the module path. The current one is
 `github.com/soulteary/health-kit/v4`.
 
+## [4.0.6] - 2026-11-13
+
+### Changed
+
+- Require Go 1.27.4, which carries security fixes to cgo, the go command, the compiler, the linker and `net/http`.
+- Update test-only `modernc.org/sqlite` from v1.61.1 to v1.62.0.
+
+The module path and the public API are unchanged.
+
 ## [4.0.5] - 2026-11-01
 
 ### Changed
