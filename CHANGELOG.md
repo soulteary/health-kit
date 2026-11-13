@@ -8,6 +8,14 @@ Because Go encodes the major version in the import path, every major release
 also changes the module path. The current one is
 `github.com/soulteary/health-kit/v4`.
 
+## [4.0.7] - 2026-11-13
+
+### Changed
+
+- Update `github.com/gofiber/fiber/v3` from v3.6.1 to v3.7.0. An application that selects this release is moved to Fiber v3.7.0 or later.
+
+The module path and the public API are unchanged.
+
 ## [4.0.6] - 2026-11-13
 
 ### Changed
