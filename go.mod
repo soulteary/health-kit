@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/gofiber/fiber/v3 v3.6.1
+	github.com/gofiber/fiber/v3 v3.7.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
 	modernc.org/sqlite v1.62.0
@@ -13,8 +13,8 @@ require (
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
-	github.com/gofiber/schema v1.9.2 // indirect
-	github.com/gofiber/utils/v2 v2.6.3 // indirect
+	github.com/gofiber/schema v1.9.3 // indirect
+	github.com/gofiber/utils/v2 v2.6.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
@@ -25,7 +25,7 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/tinylib/msgp v1.6.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasthttp v1.77.0 // indirect
+	github.com/valyala/fasthttp v1.78.0 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
