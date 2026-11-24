@@ -625,7 +625,7 @@ with a single check's status — anything outside the first three maps to 503.
   the root package does not pull it in
 - github.com/redis/go-redis/v9 v9.24.0+ — **only** if you import `redisprobe`;
   the root package does not pull it in
-- modernc.org/sqlite v1.59.0+ and github.com/alicebob/miniredis/v2 v2.39.0+ are
+- modernc.org/sqlite v1.63.0+ and github.com/alicebob/miniredis/v2 v2.40.0+ are
   test-only dependencies
 
 ## Test Coverage

@@ -592,7 +592,7 @@ func main() {
   根包不会引入它
 - github.com/redis/go-redis/v9 v9.24.0+ —— **仅当**你导入 `redisprobe` 时需要，
   根包不会引入它
-- modernc.org/sqlite v1.59.0+ 与 github.com/alicebob/miniredis/v2 v2.39.0+ 为
+- modernc.org/sqlite v1.63.0+ 与 github.com/alicebob/miniredis/v2 v2.40.0+ 为
   仅测试依赖
 
 ## 测试覆盖率
