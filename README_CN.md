@@ -587,10 +587,10 @@ func main() {
 
 ## 要求
 
-- **Go 1.27.2+**（`go.mod` 声明 `go 1.27.2`）
-- github.com/gofiber/fiber/v3 v3.5.0+ —— **仅当**你导入 `fiberadapter` 时需要，
+- **Go 1.27.4+**（`go.mod` 声明 `go 1.27.4`）
+- github.com/gofiber/fiber/v3 v3.7.0+ —— **仅当**你导入 `fiberadapter` 时需要，
   根包不会引入它
-- github.com/redis/go-redis/v9 v9.22.0+ —— **仅当**你导入 `redisprobe` 时需要，
+- github.com/redis/go-redis/v9 v9.24.0+ —— **仅当**你导入 `redisprobe` 时需要，
   根包不会引入它
 - modernc.org/sqlite v1.59.0+ 与 github.com/alicebob/miniredis/v2 v2.39.0+ 为
   仅测试依赖

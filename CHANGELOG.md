@@ -10,7 +10,19 @@ also changes the module path. The current one is
 
 ## [Unreleased]
 
-Candidate: v4.0.8 (not yet released).
+## [4.0.9] - 2026-11-25
+
+### Changed
+
+- Update `github.com/redis/go-redis/v9` from v9.23.0 to v9.24.0.
+- Align the README requirements with the versions declared in `go.mod`.
+
+The update applies to the `redisprobe` subpackage. The root package does not import the Redis client.
+
+See the [release notes](docs/releases/v4.0.9.md) for Redis client behavior
+changes and upgrade and rollback guidance.
+
+## [4.0.8] - 2026-11-24
 
 ### Changed
 
